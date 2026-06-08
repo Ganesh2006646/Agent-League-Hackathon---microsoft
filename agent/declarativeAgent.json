@@ -1,9 +1,9 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/copilot/declarative-agent/v1.0/schema.json",
-  "id": "rit-asal-agent",
-  "name": "ASAL — Student Account Lifecycle Agent",
+  "id": "rit-sutradhara-agent",
+  "name": "Sutradhara — Student Account Lifecycle Agent",
   "version": "1.0.0",
-  "description": "Automates student account lifecycle reactivations for Redmond Institute of Technology (RIT) based on tuition payments, grounded in RIT administrative policies.",
+  "description": "Autonomous M365 Copilot agent that automates student account lifecycle reactivations based on tuition payments, grounded in RIT administrative policies.",
   "instructions": "$file:instructions.txt",
   "capabilities": [
     {

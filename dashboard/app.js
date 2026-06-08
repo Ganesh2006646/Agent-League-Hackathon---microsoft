@@ -1,5 +1,5 @@
 /* ==========================================================================
-   RIT ASAL PORTAL ENGINE & SIMULATION
+   RIT SUTRADHARA PORTAL ENGINE & SIMULATION
    Simulates Microsoft M365 Copilot reasoning, Graph API calls, and SP Auditing
    ========================================================================== */
 
@@ -240,7 +240,7 @@ function executeScenario(scenarioNum) {
 
   // Simulate Copilot retrieval, thinking, and reasoning latency
   setTimeout(() => {
-    addChatMessage("ASAL Agent", `Initiating verification sequence. Transaction ID: <code>${currentTransactionId}</code>. Checking ledgers...`, "agent");
+    addChatMessage("Sutradhara Agent", `Initiating verification sequence. Transaction ID: <code>${currentTransactionId}</code>. Checking ledgers...`, "agent");
     
     // Simulate Graph checks
     logGraphRequest("GET", `/users/${studentId}`);
@@ -333,7 +333,7 @@ function runAgentReasoning(studentId, student) {
   }
 
   // Render reasoning details in chat
-  addChatMessage("ASAL Agent", `Reasoning Complete. Grounding in policies via Foundry IQ...<br><b>Result:</b> Recommended Action is <b>${recommendation.toUpperCase()}</b>.<br><b>Rule:</b> ${policyCitation}`, "agent");
+  addChatMessage("Sutradhara Agent", `Reasoning Complete. Grounding in policies via Foundry IQ...<br><b>Result:</b> Recommended Action is <b>${recommendation.toUpperCase()}</b>.<br><b>Rule:</b> ${policyCitation}`, "agent");
 
   // Trigger Adaptive Card rendering
   setTimeout(() => {
@@ -365,7 +365,7 @@ function renderAdaptiveCard(studentId, student, recommendation, citation, trace)
   const cardHtml = `
     <div class="ac-card">
       <div class="ac-header" style="background:${headerColorStyle}">
-        <span class="ac-header-title">🛡️ RIT ASAL APPROVAL REQUEST (HITL)</span>
+        <span class="ac-header-title">🛡️ RIT SUTRADHARA APPROVAL REQUEST (HITL)</span>
         <span class="badge ${badgeClass}">${recommendation.toUpperCase()}</span>
       </div>
       <div class="ac-body">
@@ -423,7 +423,7 @@ window.processITAction = function(action, studentId, citation, trace, recommenda
   clearReactivationState();
 
   if (action === "approve") {
-    addChatMessage("ASAL Agent", `Approval received. Executing Microsoft Graph provisioning...`, "agent");
+    addChatMessage("Sutradhara Agent", `Approval received. Executing Microsoft Graph provisioning...`, "agent");
     
     // Simulate Graph Update call
     logGraphRequest("PATCH", `/users/${studentId}`, { accountEnabled: true });
@@ -452,7 +452,7 @@ window.processITAction = function(action, studentId, citation, trace, recommenda
         noticeText = "This is a temporary 72-hour hardship extension. Access will automatically suspend on 2026-06-11 at 11:59 PM PT unless a payment plan is established.";
       }
 
-      addChatMessage("ASAL Agent", `Account reactivated successfully. Access Level: ${scopeText}`, "agent");
+      addChatMessage("Sutradhara Agent", `Account reactivated successfully. Access Level: ${scopeText}`, "agent");
       
       // Write to SharePoint Audit list
       logGraphRequest("POST", `/sites/BursarOffice/lists/AuditLog/items`, {
@@ -472,16 +472,16 @@ window.processITAction = function(action, studentId, citation, trace, recommenda
     }, 800);
   } 
   else if (action === "deny") {
-    addChatMessage("ASAL Agent", `Reactivation Denied. Writing rejection registry entries...`, "agent");
+    addChatMessage("Sutradhara Agent", `Reactivation Denied. Writing rejection registry entries...`, "agent");
     setTimeout(() => {
-      addChatMessage("ASAL Agent", `Reactivation request rejected in compliance with policy. Student notification dispatched.`, "agent");
+      addChatMessage("Sutradhara Agent", `Reactivation request rejected in compliance with policy. Student notification dispatched.`, "agent");
       addAuditRow(studentId, "Deny", citation, "it.lead@ritedu.edu", trace);
     }, 400);
   }
   else if (action === "escalate") {
-    addChatMessage("ASAL Agent", `Request escalated. Forwarding payload to Dean of Students office.`, "agent");
+    addChatMessage("Sutradhara Agent", `Request escalated. Forwarding payload to Dean of Students office.`, "agent");
     setTimeout(() => {
-      addChatMessage("ASAL Agent", `Escalation successful. Case ticket #TKT-${Math.floor(Math.random()*10000)} generated.`, "agent");
+      addChatMessage("Sutradhara Agent", `Escalation successful. Case ticket #TKT-${Math.floor(Math.random()*10000)} generated.`, "agent");
       addAuditRow(studentId, "Escalate", citation, "it.lead@ritedu.edu", trace);
     }, 500);
   }
@@ -495,11 +495,11 @@ function triggerRateLimitingAnomaly() {
   isThrottled = true;
   
   setTimeout(() => {
-    addChatMessage("ASAL Agent", `Processing batch...`, "agent");
+    addChatMessage("Sutradhara Agent", `Processing batch...`, "agent");
     
     setTimeout(() => {
       // Trigger RIT-POL-004 §4 Anomaly Detection
-      addChatMessage("ASAL Agent", `🔴 <b>RATE-LIMIT BREACH</b>: Multiple account lifecycle changes detected in under 10 minutes from session. Triggering security protocol [RIT-POL-004 §4].`, "agent");
+      addChatMessage("Sutradhara Agent", `🔴 <b>RATE-LIMIT BREACH</b>: Multiple account lifecycle changes detected in under 10 minutes from session. Triggering security protocol [RIT-POL-004 §4].`, "agent");
       
       // Render Anomaly Adaptive Card
       const anomalyCard = `
@@ -536,13 +536,13 @@ window.resetSecurityThrottle = function() {
   requestCount = 0;
   requestTimestamps = [];
   clearReactivationState();
-  addChatMessage("ASAL Agent", "Security throttle cleared. Front desk operator session restored to active status.", "agent");
+  addChatMessage("Sutradhara Agent", "Security throttle cleared. Front desk operator session restored to active status.", "agent");
   announceToSR("Operator session unlocked");
 };
 
 window.confirmSecurityLock = function() {
   clearReactivationState();
-  addChatMessage("ASAL Agent", "Incident ticket filed with the Security Operations Center. All administrative access from this workstation has been suspended.", "agent");
+  addChatMessage("Sutradhara Agent", "Incident ticket filed with the Security Operations Center. All administrative access from this workstation has been suspended.", "agent");
   announceToSR("Operator account suspended indefinitely");
 };
 

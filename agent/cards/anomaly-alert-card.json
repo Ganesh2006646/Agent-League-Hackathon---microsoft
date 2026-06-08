@@ -21,7 +21,7 @@
       "items": [
         {
           "type": "TextBlock",
-          "text": "The ASAL Monitoring Engine has detected a rate-limiting threshold breach in account reactivations.",
+          "text": "The Sutradhara Monitoring Engine has detected a rate-limiting threshold breach in account reactivations.",
           "wrap": true
         }
       ]

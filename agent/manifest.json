@@ -3,7 +3,7 @@
   "manifestVersion": "1.17",
   "version": "1.0.0",
   "id": "c138f292-628a-4d2c-80a5-bdf7c94c92e6",
-  "packageName": "com.rit.asal.copilot",
+  "packageName": "com.rit.sutradhara.copilot",
   "developer": {
     "name": "Redmond Institute of Technology",
     "websiteUrl": "https://ritedu.sharepoint.com/sites/IT",
@@ -15,18 +15,18 @@
     "outline": "outline.png"
   },
   "name": {
-    "short": "RIT ASAL Agent",
-    "full": "ASAL — Student Account Lifecycle Agent"
+    "short": "Sutradhara Agent",
+    "full": "Sutradhara — Student Account Lifecycle Agent"
   },
   "description": {
     "short": "Automates RIT student account reactivations after tuition payment clearance.",
-    "full": "Automates student account lifecycle reactivations for Redmond Institute of Technology (RIT) based on tuition payments, grounded in RIT administrative policies."
+    "full": "Sutradhara is an autonomous enterprise agent built in the Microsoft 365 Copilot ecosystem that turns account restoration from a ticket queue into an AI-orchestrated, policy-driven service."
   },
   "accentColor": "#5B5FC7",
   "copilotAgents": {
     "declarativeAgents": [
       {
-        "id": "rit-asal-agent",
+        "id": "rit-sutradhara-agent",
         "manifestPath": "declarativeAgent.json"
       }
     ]
