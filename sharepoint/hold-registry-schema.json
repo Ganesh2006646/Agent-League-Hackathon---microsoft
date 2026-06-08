@@ -1,0 +1,75 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/sharepoint/list-schema.json",
+  "displayName": "HoldRegistry",
+  "description": "Registry of student academic, administrative, and disciplinary holds at RIT.",
+  "columns": [
+    {
+      "name": "Title",
+      "type": "Text",
+      "required": true,
+      "displayName": "Hold Reference ID"
+    },
+    {
+      "name": "StudentID",
+      "type": "Text",
+      "required": true,
+      "displayName": "Student ID",
+      "indexed": true
+    },
+    {
+      "name": "HoldType",
+      "type": "Choice",
+      "required": true,
+      "displayName": "Hold Type",
+      "choices": [
+        "Financial",
+        "AcademicIntegrity",
+        "Investigation",
+        "Probation",
+        "Administrative"
+      ]
+    },
+    {
+      "name": "HoldStatus",
+      "type": "Choice",
+      "required": true,
+      "displayName": "Hold Status",
+      "choices": [
+        "Active",
+        "Expired",
+        "Lifted",
+        "UnderReview"
+      ]
+    },
+    {
+      "name": "PlacedDate",
+      "type": "DateTime",
+      "required": true,
+      "displayName": "Date Placed"
+    },
+    {
+      "name": "ExpiryDate",
+      "type": "DateTime",
+      "required": false,
+      "displayName": "Expiration Date"
+    },
+    {
+      "name": "PlacedBy",
+      "type": "Text",
+      "required": true,
+      "displayName": "Placed By"
+    },
+    {
+      "name": "Reason",
+      "type": "Note",
+      "required": true,
+      "displayName": "Hold Explanation"
+    },
+    {
+      "name": "ResolutionNotes",
+      "type": "Note",
+      "required": false,
+      "displayName": "Resolution Notes"
+    }
+  ]
+}

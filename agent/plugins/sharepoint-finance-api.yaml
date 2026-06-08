@@ -1,0 +1,96 @@
+openapi: 3.0.1
+info:
+  title: RIT SharePoint Lists Integration API
+  description: API for managing Finance Ledgers, Hold Registries, and Audit Logs on RIT SharePoint sites.
+  version: v1.0
+servers:
+  - url: https://graph.microsoft.com/v1.0
+paths:
+  /sites/{siteId}/lists/{listId}/items:
+    get:
+      summary: Retrieve items from a SharePoint list
+      operationId: getListItems
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          description: The unique ID of the RIT SharePoint site.
+          schema:
+            type: string
+        - name: listId
+          in: path
+          required: true
+          description: The name or GUID of the list (FinanceLedger or HoldRegistry).
+          schema:
+            type: string
+        - name: $filter
+          in: query
+          required: false
+          description: OData filter query (e.g., fields/StudentID eq 'S12345').
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List items retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        fields:
+                          type: object
+                          additionalProperties: true
+        '404':
+          description: List or Site not found.
+    post:
+      summary: Add an item to a SharePoint list (used for Audit Logs)
+      operationId: createListItem
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          description: The unique ID of the RIT SharePoint site.
+          schema:
+            type: string
+        - name: listId
+          in: path
+          required: true
+          description: The name or GUID of the list (AuditLog).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fields
+              properties:
+                fields:
+                  type: object
+                  additionalProperties: true
+                  description: The key-value pairs representing the list columns.
+      responses:
+        '201':
+          description: List item created successfully (Audit entry recorded).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  fields:
+                    type: object
+        '400':
+          description: Invalid list fields payload.
+        '403':
+          description: Access denied. Sites.ReadWrite.All scope required.

@@ -1,0 +1,72 @@
+openapi: 3.0.1
+info:
+  title: Microsoft Graph User Account Management API
+  description: API for retrieving and updating student Microsoft Entra ID account states (enable/disable) for RIT.
+  version: v1.0
+servers:
+  - url: https://graph.microsoft.com/v1.0
+paths:
+  /users/{userId}:
+    get:
+      summary: Retrieve student account details
+      operationId: getStudentUser
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: The student ID or RIT email address of the target user.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Student details retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  displayName:
+                    type: string
+                  userPrincipalName:
+                    type: string
+                  accountEnabled:
+                    type: string
+                  department:
+                    type: string
+                  jobTitle:
+                    type: string
+        '404':
+          description: Student user not found.
+    patch:
+      summary: Update student account status
+      operationId: updateStudentStatus
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: The student ID or RIT email address of the target user.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - accountEnabled
+              properties:
+                accountEnabled:
+                  type: boolean
+                  description: Set to true to enable the student account, false to disable.
+      responses:
+        '204':
+          description: Account updated successfully. No content returned.
+        '400':
+          description: Invalid request payload.
+        '403':
+          description: Insufficient privileges. Ensure User.EnableDisableAccount.All permission is granted.
+        '404':
+          description: Student user not found.
