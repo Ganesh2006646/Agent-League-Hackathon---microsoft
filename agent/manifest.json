@@ -1,0 +1,46 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "c138f292-628a-4d2c-80a5-bdf7c94c92e6",
+  "packageName": "com.rit.asal.copilot",
+  "developer": {
+    "name": "Redmond Institute of Technology",
+    "websiteUrl": "https://ritedu.sharepoint.com/sites/IT",
+    "privacyUrl": "https://ritedu.sharepoint.com/sites/IT/privacy",
+    "termsOfUseUrl": "https://ritedu.sharepoint.com/sites/IT/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "RIT ASAL Agent",
+    "full": "ASAL — Student Account Lifecycle Agent"
+  },
+  "description": {
+    "short": "Automates RIT student account reactivations after tuition payment clearance.",
+    "full": "Automates student account lifecycle reactivations for Redmond Institute of Technology (RIT) based on tuition payments, grounded in RIT administrative policies."
+  },
+  "accentColor": "#5B5FC7",
+  "copilotAgents": {
+    "declarativeAgents": [
+      {
+        "id": "rit-asal-agent",
+        "manifestPath": "declarativeAgent.json"
+      }
+    ]
+  },
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "ritedu.sharepoint.com",
+    "graph.microsoft.com"
+  ],
+  "webApplicationInfo": {
+    "id": "8e3c1bde-6f52-4e48-9da7-0be6014e7a2b",
+    "resource": "api://ritedu.sharepoint.com/8e3c1bde-6f52-4e48-9da7-0be6014e7a2b"
+  }
+}

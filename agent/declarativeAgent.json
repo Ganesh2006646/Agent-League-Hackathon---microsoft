@@ -1,0 +1,46 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/copilot/declarative-agent/v1.0/schema.json",
+  "id": "rit-asal-agent",
+  "name": "ASAL — Student Account Lifecycle Agent",
+  "version": "1.0.0",
+  "description": "Automates student account lifecycle reactivations for Redmond Institute of Technology (RIT) based on tuition payments, grounded in RIT administrative policies.",
+  "instructions": "$file:instructions.txt",
+  "capabilities": [
+    {
+      "name": "WebSearch",
+      "status": "disabled"
+    }
+  ],
+  "knowledge": {
+    "foundryKBs": [
+      {
+        "id": "rit-policy-grounding-kb",
+        "description": "Contains RIT policy documentation (RIT-POL-001 through RIT-POL-005) covering financial holds, reactivation rules, academic integrity priorities, audit requirements, and hardship guidelines."
+      }
+    ],
+    "sharepointSites": [
+      {
+        "url": "https://ritedu.sharepoint.com/sites/BursarOffice",
+        "description": "Access to RIT Student Financial Ledger and Hold Registry lists."
+      }
+    ]
+  },
+  "actions": [
+    {
+      "id": "graphAccountAction",
+      "file": "plugins/graph-account-api.yaml",
+      "auth": {
+        "type": "OAuth2",
+        "referenceId": "entra-connection"
+      }
+    },
+    {
+      "id": "sharepointFinanceAction",
+      "file": "plugins/sharepoint-finance-api.yaml",
+      "auth": {
+        "type": "OAuth2",
+        "referenceId": "entra-connection"
+      }
+    }
+  ]
+}
