@@ -1,9 +1,44 @@
 /* ==========================================================================
-   RIT SUTRADHARA PORTAL ENGINE & SIMULATION
-   Simulates Microsoft M365 Copilot reasoning, Graph API calls, and SP Auditing
+   RIT SUTRADHARA PORTAL ENGINE
+   Supports both Simulation Mode and Live Backend Mode (Azure + Graph API)
    ========================================================================== */
 
-// 1. Mock Database representing RIT Registries
+// ─── Live Mode Configuration ────────────────────────────────────────────────
+let LIVE_MODE = false;
+const BACKEND_URL = localStorage.getItem('sutradhara_backend_url') || 'http://localhost:3000';
+
+// API Helper for Live Mode
+async function apiCall(method, path, body = null) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(`${BACKEND_URL}${path}`, opts);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || resp.statusText);
+  }
+  return resp.json();
+}
+
+// Toggle handler (will be wired to UI button)
+function toggleLiveMode() {
+  LIVE_MODE = !LIVE_MODE;
+  const indicator = document.querySelector('.status-label');
+  const dot = document.querySelector('.status-dot');
+  if (LIVE_MODE) {
+    indicator.textContent = `Live Mode — ${BACKEND_URL}`;
+    dot.style.background = '#00e676';
+    announceToSR('Switched to Live Backend mode');
+  } else {
+    indicator.textContent = 'Copilot & Foundry IQ Connected (Simulation)';
+    dot.style.background = '';
+    announceToSR('Switched to Simulation mode');
+  }
+}
+
+// 1. Mock Database representing RIT Registries (used in Simulation Mode)
 const studentDatabase = {
   "S12345": {
     profile: { id: "S12345", name: "Alice Vance", email: "alice.vance@ritedu.edu", dept: "Computer Science", active: false },
@@ -205,7 +240,7 @@ function addChatMessage(sender, content, role) {
   announceToSR(`${sender} says: ${content}`);
 }
 
-// 5. Main Simulation Driver
+// 5. Main Scenario Driver (Simulation or Live)
 function executeScenario(scenarioNum) {
   clearReactivationState();
   currentTransactionId = generateGuid();
@@ -216,33 +251,107 @@ function executeScenario(scenarioNum) {
     return;
   }
 
-  // Load database records corresponding to scenarios
   const scenarioMappings = {
-    "1": "S12345", // Alice Vance (Standard)
-    "2": "S12346", // Bob Carter (Partial Payment 83%)
-    "3": "S12347", // Charlie Miller (Expired Hold)
-    "4": "S12348", // Diana Prince (Active Investigation Hold)
-    "5": "S12349"  // Ethan Hunt (Hardship Claim 40%)
+    "1": "S12345", "2": "S12346", "3": "S12347",
+    "4": "S12348", "5": "S12349"
   };
 
   const studentId = scenarioMappings[scenarioNum];
   activeStudentId = studentId;
-  const student = studentDatabase[studentId];
-
-  // Refresh enterprise system panels
-  updateEnterpriseUI(studentId);
-  
-  // Track system session request speed
   trackRequestRate();
 
-  // User input message simulation
+  if (LIVE_MODE) {
+    executeLiveScenario(studentId);
+  } else {
+    executeSimulatedScenario(studentId);
+  }
+}
+
+// ─── LIVE MODE: calls real Express backend ───────────────────────────────────
+async function executeLiveScenario(studentId) {
+  addChatMessage("Front Desk Operator", `Process account reactivation request for Student ID: ${studentId}`, "user");
+  addChatMessage("Sutradhara Agent", `Initiating <b>LIVE</b> verification sequence. Transaction: <code>${currentTransactionId}</code>`, "agent");
+
+  try {
+    // Step 1: Fetch student from backend (which calls real Graph + SharePoint)
+    logGraphRequest("GET", `/api/student/${studentId}`);
+    const data = await apiCall("GET", `/api/student/${studentId}`);
+    logGraphResponse(200, data);
+
+    // Populate the UI with live data
+    const liveStudent = {
+      profile: {
+        id: studentId,
+        name: data.profile.displayName,
+        email: data.profile.userPrincipalName,
+        dept: data.profile.department || 'N/A',
+        active: data.profile.accountEnabled
+      },
+      finance: data.finance ? {
+        due: data.finance.AmountDue || 0,
+        paid: data.finance.AmountPaid || 0,
+        percentage: data.finance.AmountDue > 0 ? ((data.finance.AmountPaid / data.finance.AmountDue) * 100) : 0,
+        receipt: data.finance.ReceiptNumber || 'N/A',
+        status: data.finance.VerificationStatus || 'Unknown'
+      } : { due: 0, paid: 0, percentage: 0, receipt: 'N/A', status: 'No Record' },
+      holds: (data.holds || []).map(h => ({
+        id: h.id || 'N/A',
+        type: h.HoldType,
+        status: h.HoldStatus,
+        placed: h.PlacedDate ? h.PlacedDate.substring(0, 10) : 'N/A',
+        expiry: h.ExpiryDate ? h.ExpiryDate.substring(0, 10) : null,
+        placedBy: h.PlacedBy || 'System',
+        reason: h.Reason || ''
+      }))
+    };
+
+    // Update enterprise system panels with real data
+    studentDatabase[studentId] = liveStudent; // cache for UI reuse
+    updateEnterpriseUI(studentId);
+
+    // Step 2: Call the reactivation reasoning endpoint
+    addChatMessage("Sutradhara Agent", `Data retrieved. Running policy reasoning engine against live policies...`, "agent");
+    logGraphRequest("POST", `/api/reactivate`);
+
+    const result = await apiCall("POST", `/api/reactivate`, {
+      studentId,
+      receiptNumber: liveStudent.finance.receipt,
+      requestedBy: "frontdesk.operator@ritedu.edu"
+    });
+    logGraphResponse(200, result);
+
+    // Display the reasoning result
+    addChatMessage("Sutradhara Agent",
+      `<b>Live Reasoning Complete.</b><br><b>Decision:</b> ${result.decision.toUpperCase()}<br><b>Policy:</b> ${result.policyCitation}<br><em>${result.reasoningTrace}</em>`,
+      "agent"
+    );
+
+    // Re-fetch to update account status after reactivation
+    if (result.decision === 'approve') {
+      liveStudent.profile.active = true;
+      updateEnterpriseUI(studentId);
+      addChatMessage("Sutradhara Agent", `✅ Account reactivated via Microsoft Graph API. Student notified via Outlook.`, "agent");
+    }
+
+    // Add audit row
+    addAuditRow(studentId, result.decision === 'approve' ? 'Reactivate' : result.decision === 'deny' ? 'Deny' : 'Escalate',
+      result.policyCitation, result.approvedBy || 'Sutradhara (Autonomous)', result.reasoningTrace);
+
+  } catch (err) {
+    addChatMessage("Sutradhara Agent", `❌ <b>Live Backend Error:</b> ${err.message}<br>Ensure the backend is running at <code>${BACKEND_URL}</code>`, "agent");
+    logGraphResponse(500, { error: err.message });
+  }
+}
+
+// ─── SIMULATION MODE: uses mock data ─────────────────────────────────────────
+function executeSimulatedScenario(studentId) {
+  const student = studentDatabase[studentId];
+  updateEnterpriseUI(studentId);
+
   addChatMessage("Front Desk Operator", `Process account reactivation request for Student ID: ${studentId}, receipt number ${student.finance.receipt}`, "user");
 
-  // Simulate Copilot retrieval, thinking, and reasoning latency
   setTimeout(() => {
     addChatMessage("Sutradhara Agent", `Initiating verification sequence. Transaction ID: <code>${currentTransactionId}</code>. Checking ledgers...`, "agent");
-    
-    // Simulate Graph checks
     logGraphRequest("GET", `/users/${studentId}`);
     
     setTimeout(() => {
@@ -253,7 +362,6 @@ function executeScenario(scenarioNum) {
         department: student.profile.dept
       });
 
-      // Simulate SharePoint list lookups
       logGraphRequest("GET", `/sites/BursarOffice/lists/FinanceLedger/items?$filter=fields/StudentID eq '${studentId}'`);
       setTimeout(() => {
         logGraphResponse(200, { value: [{ fields: student.finance }] });
@@ -262,8 +370,6 @@ function executeScenario(scenarioNum) {
         
         setTimeout(() => {
           logGraphResponse(200, { value: student.holds.map(h => ({ fields: h })) });
-
-          // Run the reasoning engine
           runAgentReasoning(studentId, student);
         }, 600);
       }, 500);

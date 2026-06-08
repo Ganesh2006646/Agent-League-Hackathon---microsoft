@@ -15,34 +15,38 @@ sequenceDiagram
     actor FD as Front Desk Agent
     participant S as Sutradhara (Copilot Agent)
     participant KB as Foundry IQ (RIT Policies)
-    participant MCP as Finance API (MCP Server)
+    participant BE as Express Backend (Azure)
     participant SP as SharePoint (Audit & Holds)
     actor IT as IT Administrator (HITL)
     participant Graph as Microsoft Graph API
 
     FD->>S: Inputs request (Student ID & Receipt)
     activate S
-    S->>MCP: Check payment clearance (Finance API call)
-    MCP-->>S: Return transaction status & amounts
-    S->>SP: Check active holds (Hold Registry)
-    SP-->>S: Return active holds list
-    S->>KB: Query Foundry IQ for policy grounding
-    KB-->>S: Return relevant RIT policy citations
-    Note over S: Multi-Step Reasoning Engine:<br/>Autonomous by Default, Governed by Exception
+    S->>BE: POST /api/reactivate
+    BE->>Graph: GET /users/{id} (Entra ID lookup)
+    Graph-->>BE: Profile + accountEnabled status
+    BE->>SP: GET FinanceLedger (payment data)
+    SP-->>BE: Payment record
+    BE->>SP: GET HoldRegistry (active holds)
+    SP-->>BE: Hold records
+    Note over BE: Multi-Step Reasoning Engine:<br/>Policy Evaluation (POL-001 to POL-005)
     alt Standard Clearance (Autonomous)
-        S->>Graph: PATCH /users/{id} (accountEnabled: true)
-        Graph-->>S: Success
-        S->>SP: Append to Audit Log (Compliant record)
-        S-->>FD: Access Restored (Notify Student via Outlook)
+        BE->>Graph: PATCH /users/{id} (accountEnabled: true)
+        Graph-->>BE: Success
+        BE->>SP: POST AuditLog (compliant record)
+        BE->>Graph: POST /sendMail (student notification)
+        BE-->>S: { decision: "approve", policyCitation, reasoningTrace }
+        S-->>FD: Access Restored ✅
     else Exception Detected (HITL Escalation)
+        BE->>SP: POST AuditLog (pending)
+        BE-->>S: { decision: "escalate", policyCitation, reasoningTrace }
         S->>IT: Send Adaptive Approval Card (Teams Channel)
         activate IT
-        Note over IT: IT Review & One-Click Action
-        IT->>S: Action: Approve Reactivation
+        IT->>BE: POST /api/approve-callback
         deactivate IT
-        S->>Graph: PATCH /users/{id} (accountEnabled: true)
-        Graph-->>S: Success
-        S->>SP: Append to Audit Log (With IT Lead Signature)
+        BE->>Graph: PATCH /users/{id} (accountEnabled: true)
+        BE->>SP: UPDATE AuditLog (approved)
+        BE-->>S: Approval confirmed
         S-->>FD: Access Restored & Confirmed
     end
     deactivate S
@@ -61,11 +65,11 @@ Sutradhara captures and proves its business value directly within the SharePoint
 ## 🛠️ Technology Stack
 - **Agent Orchestration**: Microsoft Copilot Studio (Declarative Agent)
 - **Knowledge Layer**: Microsoft Foundry IQ (grounded on RIT Policy corpus)
-- **Integration Layer**: Model Context Protocol (MCP) connected to University Finance APIs
-- **Identity & Actions**: Microsoft Graph API (User Lifecycle Management)
-- **Data & Audit Trails**: SharePoint Lists (Holds and Compliance Audit registries)
+- **Backend API**: Node.js / Express on Azure App Service
+- **Identity & Actions**: Microsoft Graph API + Entra ID (User Lifecycle Management)
+- **Data & Audit Trails**: SharePoint Lists (FinanceLedger, HoldRegistry, AuditLog)
 - **Interface & Approvals**: Microsoft Teams & Adaptive Cards
-- **Demo Dashboard**: Fluent-themed HTML5/CSS3/Vanilla JS simulation
+- **Demo Dashboard**: Fluent-themed HTML5/CSS3/Vanilla JS (simulation + live mode)
 
 ---
 
@@ -91,7 +95,15 @@ Sutradhara is grounded in the following synthesized RIT regulations:
 │   │   └── anomaly-alert.json        # Security alert Adaptive Card
 │   └── plugins/
 │       ├── graph-account-api.yaml    # OpenAPI spec for Microsoft Graph
-│       └── sharepoint-finance-api.yaml # OpenAPI spec for SharePoint Lists
+│       ├── sharepoint-finance-api.yaml # OpenAPI spec for SharePoint Lists
+│       └── sutradhara-backend-api.yaml # OpenAPI spec for Express backend
+├── backend/                          # 🚀 Live Express backend
+│   ├── package.json                  # Node.js dependencies
+│   ├── .env.example                  # Environment variable template
+│   ├── graph-client.js               # Microsoft Graph SDK initialization
+│   ├── server.js                     # Express API server (4 routes + reasoning)
+│   ├── setup-sharepoint.js           # SharePoint list provisioning script
+│   └── seed-demo-data.js             # Demo student account + data seeder
 ├── policies/                         # RIT Policy corpus for Foundry IQ
 │   ├── RIT-POL-001-Financial-Hold.md
 │   ├── RIT-POL-002-Reactivation-Procedure.md
@@ -102,16 +114,122 @@ Sutradhara is grounded in the following synthesized RIT regulations:
 │   ├── finance-ledger-schema.json
 │   ├── hold-registry-schema.json
 │   └── audit-log-schema.json
-├── dashboard/                        # Interactive simulation dashboard
+├── dashboard/                        # Interactive demo dashboard
 │   ├── index.html
 │   ├── index.css
-│   └── app.js
+│   └── app.js                        # Supports Simulation + Live Mode
 └── README.md
 ```
 
 ---
 
-## 🔬 End-to-End Demo Stories Simulated
-- **Story 1: The Happy Path (Autonomous Clearance)**: A Front Desk operator uploads a payment receipt in Teams. Sutradhara calls the Finance MCP tool, verifies payment, confirms no registry holds, calls Graph API to reactivate, writes the audit log, and notifies the student via email in under 10 seconds.
-- **Story 2: The Exception Path (Governed by Exception)**: A student has paid tuition, but has an active hold. Sutradhara identifies the conflict, blocks autonomous execution, compiles a recommendation packet citing policy, and escalates to the IT channel via a Teams Adaptive Card for manual review.
-- **Story 3: Anomaly & Rate Spikes**: Suspiciously high request volumes automatically trigger safety throttling and escalate to the Security Operations Center (SOC).
+## 🚀 Deployment Guide
+
+### Prerequisites
+- Node.js >= 18.0.0
+- Azure subscription (with App Service plan)
+- Microsoft 365 tenant with admin access
+- SharePoint site created
+
+### Step 1: Azure App Registration (Entra ID)
+1. Go to **Azure Portal** → **Microsoft Entra ID** → **App registrations** → **New registration**
+2. Name: `Sutradhara Backend`
+3. Supported account types: **Single tenant**
+4. After creating, note the **Application (client) ID** and **Directory (tenant) ID**
+5. Go to **Certificates & secrets** → **New client secret** → copy the secret value
+6. Go to **API permissions** → Add these **Application permissions**:
+   - `User.ReadWrite.All` (read/write user profiles, enable/disable accounts)
+   - `Sites.ReadWrite.All` (read/write SharePoint lists)
+   - `Mail.Send` (send notification emails)
+7. Click **Grant admin consent**
+
+### Step 2: Get SharePoint Site ID
+```powershell
+# After setting up .env with TENANT_ID, CLIENT_ID, CLIENT_SECRET:
+# Use Graph Explorer or this curl command:
+# GET https://graph.microsoft.com/v1.0/sites/{your-tenant}.sharepoint.com:/sites/{site-name}
+# Copy the "id" field → this is your SHAREPOINT_SITE_ID
+```
+
+### Step 3: Configure Backend
+```bash
+cd backend
+cp .env.example .env
+# Edit .env with your real values:
+#   TENANT_ID=your-tenant-id
+#   CLIENT_ID=your-client-id
+#   CLIENT_SECRET=your-client-secret
+#   SHAREPOINT_SITE_ID=your-site-id
+#   TEAMS_WEBHOOK_URL=your-webhook-url (optional)
+#   DOMAIN=your-domain.onmicrosoft.com
+npm install
+```
+
+### Step 4: Provision SharePoint Lists
+```bash
+npm run setup
+# Creates: FinanceLedger, HoldRegistry, AuditLog with all columns
+```
+
+### Step 5: Create Demo Student Accounts
+```bash
+npm run seed
+# Creates 5 demo students in Entra ID + seeds finance/hold data
+```
+
+### Step 6: Start the Backend
+```bash
+npm start
+# Server starts at http://localhost:3000
+# Test: curl http://localhost:3000/api/health
+```
+
+### Step 7: Deploy to Azure App Service
+```bash
+# Option A: Azure CLI
+az webapp up --name sutradhara-backend --runtime "NODE:18-lts" --sku B1
+
+# Option B: GitHub Actions (push to main → auto-deploy)
+# Configure in Azure Portal → Deployment Center → GitHub
+```
+
+### Step 8: Teams App Package
+1. Zip the `agent/` folder contents (manifest.json, declarativeAgent.json, cards/, plugins/)
+2. Upload to **Teams Admin Center** → **Manage apps** → **Upload custom app**
+3. Or use **Teams Toolkit** in VS Code to deploy
+
+### Step 9: Copilot Studio Configuration
+1. Go to **Copilot Studio** → **Create** → **Declarative Agent**
+2. Import the `declarativeAgent.json`
+3. Configure the **Foundry IQ** knowledge base with the `/policies` folder
+4. Set the API plugin connection to point at your Azure backend URL
+5. Test in the Copilot Studio test pane
+
+---
+
+## 🔬 End-to-End Demo Stories
+
+| Scenario | Student | Payment | Holds | Expected Decision | Policy |
+|----------|---------|---------|-------|-------------------|--------|
+| 1. Happy Path | Alice Vance (S12345) | 100% ($12K) | None | ✅ APPROVE FULL | RIT-POL-001 §6.3 |
+| 2. Partial Payment | Bob Carter (S12346) | 83% ($12.5K/$15K) | Financial (Active) | ⚠️ ESCALATE | RIT-POL-001 §7.2 |
+| 3. Expired Hold | Charlie Miller (S12347) | 100% ($10K) | AcademicIntegrity (Expired) | ✅ APPROVE FULL | RIT-POL-003 §4 |
+| 4. Active Investigation | Diana Prince (S12348) | 100% ($14K) | Investigation (Active) | ❌ DENY | RIT-POL-003 §3 |
+| 5. Hardship Case | Ethan Hunt (S12349) | 40% ($4.8K/$12K) | Financial (Active) | ❌ DENY | RIT-POL-001 §7.2 |
+| 6. Security Anomaly | — | — | — | 🚨 RATE LIMIT | RIT-POL-004 §4 |
+
+---
+
+## 🧪 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/student/:studentId` | Fetch student profile + finance + holds |
+| `POST` | `/api/reactivate` | Process reactivation (reasoning engine) |
+| `POST` | `/api/approve-callback` | IT approval/denial callback |
+
+---
+
+## 📄 License
+MIT License — Microsoft Agents League Hackathon 2026

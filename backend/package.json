@@ -1,0 +1,24 @@
+{
+  "name": "sutradhara-backend",
+  "version": "1.0.0",
+  "description": "Sutradhara Enterprise Agent - Node.js Express Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node setup-sharepoint.js",
+    "seed": "node seed-demo-data.js"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.6.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "isomorphic-fetch": "^3.0.0",
+    "uuid": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

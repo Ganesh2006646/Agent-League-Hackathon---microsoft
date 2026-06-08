@@ -41,6 +41,14 @@
         "type": "OAuth2",
         "referenceId": "entra-connection"
       }
+    },
+    {
+      "id": "sutradharaBackendAction",
+      "file": "plugins/sutradhara-backend-api.yaml",
+      "auth": {
+        "type": "OAuth2",
+        "referenceId": "entra-connection"
+      }
     }
   ]
 }

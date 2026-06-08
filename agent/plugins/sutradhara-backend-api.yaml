@@ -1,0 +1,152 @@
+openapi: 3.0.1
+info:
+  title: Sutradhara Backend API
+  description: Enterprise API for student account lifecycle management. Handles student data retrieval, policy-driven reactivation reasoning, and IT approval callbacks.
+  version: v1.0
+servers:
+  - url: https://sutradhara-backend.azurewebsites.net
+    description: Azure App Service (Production)
+  - url: http://localhost:3000
+    description: Local Development
+paths:
+  /api/health:
+    get:
+      summary: Health check endpoint
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Backend service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+
+  /api/student/{studentId}:
+    get:
+      summary: Retrieve student profile, finance, and hold data
+      operationId: getStudentData
+      description: Fetches student identity from Microsoft Entra ID (Graph API), finance records from SharePoint FinanceLedger, and holds from SharePoint HoldRegistry.
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          description: The student's Entra ID user principal name, object ID, or student reference code.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Student data retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profile:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      userPrincipalName:
+                        type: string
+                      accountEnabled:
+                        type: boolean
+                      department:
+                        type: string
+                  finance:
+                    type: object
+                    description: Finance ledger record from SharePoint.
+                  holds:
+                    type: array
+                    items:
+                      type: object
+                    description: Hold registry records from SharePoint.
+        '404':
+          description: Student not found in Entra ID.
+
+  /api/reactivate:
+    post:
+      summary: Process a student account reactivation request
+      operationId: processReactivation
+      description: Runs the Sutradhara policy reasoning engine against RIT policies (POL-001 through POL-005). Autonomously approves, denies, or escalates the request based on payment status, hold registry, and policy rules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - studentId
+                - receiptNumber
+                - requestedBy
+              properties:
+                studentId:
+                  type: string
+                  description: The student's Entra ID user principal name or object ID.
+                receiptNumber:
+                  type: string
+                  description: The tuition payment receipt reference number.
+                requestedBy:
+                  type: string
+                  description: Email of the front desk operator making the request.
+      responses:
+        '200':
+          description: Reactivation request processed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionId:
+                    type: string
+                  decision:
+                    type: string
+                    enum: [approve, deny, escalate, temporary]
+                  policyCitation:
+                    type: string
+                  reasoningTrace:
+                    type: string
+                  approvedBy:
+                    type: string
+        '400':
+          description: Missing required fields.
+        '429':
+          description: Rate limit exceeded (RIT-POL-004 §4).
+
+  /api/approve-callback:
+    post:
+      summary: IT administrator approval callback
+      operationId: approvalCallback
+      description: Receives approval, denial, or escalation decisions from IT administrators (typically via Teams Adaptive Card actions).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - studentId
+                - transactionId
+                - approvedBy
+                - action
+              properties:
+                studentId:
+                  type: string
+                transactionId:
+                  type: string
+                approvedBy:
+                  type: string
+                action:
+                  type: string
+                  enum: [approve, deny, escalate]
+      responses:
+        '200':
+          description: Callback processed successfully.
+        '400':
+          description: Missing required fields.
