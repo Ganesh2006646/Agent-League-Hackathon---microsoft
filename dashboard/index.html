@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RIT ASAL — Student Account Lifecycle Dashboard</title>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="index.css">
+</head>
+<body class="dark-theme">
+  <!-- Accessibility Screen Reader Announcer -->
+  <div id="sr-announcer" class="sr-only" aria-live="assertive"></div>
+
+  <!-- Header Panel -->
+  <header class="app-header">
+    <div class="header-logo">
+      <div class="logo-icon">RIT</div>
+      <div class="logo-text">
+        <h1>ASAL Portal</h1>
+        <p>Redmond Institute of Technology • Student Account Lifecycle System</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="system-status-indicator">
+        <span class="status-dot pulsing"></span>
+        <span class="status-label">Copilot & Foundry IQ Connected</span>
+      </div>
+      <button id="toggle-theme-btn" class="icon-btn" aria-label="Toggle high contrast theme">🌓 Contrast</button>
+    </div>
+  </header>
+
+  <!-- Main Grid Layout -->
+  <main class="dashboard-grid">
+    
+    <!-- LEFT PANEL: Simulation & Scenarios Selection -->
+    <section class="panel panel-scenarios" aria-labelledby="scenarios-title">
+      <h2 id="scenarios-title" class="panel-header">🧪 Select Reasoning Scenario</h2>
+      <div class="panel-body">
+        <p class="section-desc">Select a scenario to load the student records and execute the agentic reasoning pipeline.</p>
+        <div class="scenarios-list">
+          <button class="scenario-item" data-scenario="1">
+            <span class="badge badge-success">Scenario 1</span>
+            <strong>Standard Reactivation</strong>
+            <p>100% tuition paid, zero holds. Full automatic reactivation.</p>
+          </button>
+          <button class="scenario-item" data-scenario="2">
+            <span class="badge badge-warning">Scenario 2</span>
+            <strong>Partial Payment Hold</strong>
+            <p>83% tuition paid. Restructure to Core Courses only [RIT-POL-001 §8].</p>
+          </button>
+          <button class="scenario-item" data-scenario="3">
+            <span class="badge badge-info">Scenario 3</span>
+            <strong>Expired Integrity Hold</strong>
+            <p>Tuition paid, hold expired. Reactivates and flags cleanup.</p>
+          </button>
+          <button class="scenario-item" data-scenario="4">
+            <span class="badge badge-danger">Scenario 4</span>
+            <strong>Active Disciplinary Block</strong>
+            <p>Tuition paid, active investigation hold. Blocked & escalated.</p>
+          </button>
+          <button class="scenario-item" data-scenario="5">
+            <span class="badge badge-primary">Scenario 5</span>
+            <strong>Hardship Emergency</strong>
+            <p>40% paid, hardship application filed. Grants 72hr access [RIT-POL-005].</p>
+          </button>
+          <button class="scenario-item" data-scenario="6">
+            <span class="badge badge-danger">Scenario 6</span>
+            <strong>Security Anomaly Alert</strong>
+            <p>Operator rate-limiting breach. Locks session [RIT-POL-004 §4].</p>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- MIDDLE PANEL: Live Teams Copilot Chat Interface -->
+    <section class="panel panel-chat" aria-labelledby="chat-title">
+      <h2 id="chat-title" class="panel-header">💬 RIT Teams Copilot Chat</h2>
+      <div class="panel-body chat-container">
+        <div class="chat-history" id="chat-history-list">
+          <!-- Initial Welcome Message -->
+          <div class="chat-message agent">
+            <div class="message-sender">ASAL Agent</div>
+            <div class="message-content">
+              Hello! I am ASAL, the Redmond Institute of Technology Student Account Lifecycle Agent. Select a scenario on the left to begin simulating verification, policy retrieval, and Graph API updates.
+            </div>
+            <div class="message-timestamp">Just now</div>
+          </div>
+        </div>
+        
+        <!-- Interactive Card Overlay Area -->
+        <div class="it-approvals-channel" id="teams-approvals-box">
+          <div class="channel-header">📢 IT Leads Channel (Approvals Panel)</div>
+          <div class="card-render-area" id="active-card-container">
+            <div class="card-placeholder">Adaptive approval cards will render here when human-in-the-loop validation is triggered.</div>
+          </div>
+        </div>
+
+        <div class="chat-input-area">
+          <input type="text" id="chat-input-field" placeholder="Select a scenario to start, or type student ID..." disabled>
+          <button id="send-chat-btn" class="fluent-btn-primary" disabled>Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT PANEL: RIT Enterprise Systems Viewer -->
+    <section class="panel panel-systems" aria-labelledby="systems-title">
+      <h2 id="systems-title" class="panel-header">🖥️ Enterprise Registry Console</h2>
+      <div class="panel-body systems-container">
+        
+        <!-- tab-buttons -->
+        <div class="systems-tabs">
+          <button class="tab-btn active" data-tab="db">🗄️ Student Records</button>
+          <button class="tab-btn" data-tab="graph">⚡ Graph API Logs</button>
+          <button class="tab-btn" data-tab="sharepoint">📊 SharePoint Audit</button>
+        </div>
+
+        <!-- TAB CONTENT 1: DB & Ledgers -->
+        <div class="tab-content active" id="tab-db">
+          <div class="data-group">
+            <h3>Student Profile</h3>
+            <div class="profile-card" id="rit-student-profile">
+              <div class="placeholder-text">No student record loaded.</div>
+            </div>
+          </div>
+          <div class="data-group">
+            <h3>Finance Ledger (Tuition)</h3>
+            <div class="profile-card" id="rit-finance-ledger">
+              <div class="placeholder-text">No finance record loaded.</div>
+            </div>
+          </div>
+          <div class="data-group">
+            <h3>Hold Registry</h3>
+            <div class="profile-card" id="rit-hold-registry">
+              <div class="placeholder-text">No active holds registry loaded.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 2: Graph API Console -->
+        <div class="tab-content" id="tab-graph">
+          <p class="section-desc">Real-time HTTP requests and callbacks processed by Microsoft Graph API.</p>
+          <div class="api-console" id="graph-api-logs">
+            <div class="console-placeholder">// Microsoft Graph API requests console idle.</div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 3: SharePoint Audit Logs -->
+        <div class="tab-content" id="tab-sharepoint">
+          <p class="section-desc">Audit ledger entries appended to the RIT SharePoint Audit List (GLBA/FERPA compliant).</p>
+          <div class="audit-log-viewer">
+            <table class="audit-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Student</th>
+                  <th>Action</th>
+                  <th>Citation</th>
+                  <th>Authorizer</th>
+                </tr>
+              </thead>
+              <tbody id="sharepoint-audit-rows">
+                <!-- Appended logs go here -->
+                <tr class="empty-row"><td colspan="5">No audit records generated.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>© Microsoft Agents League Hackathon 2026. Built by RIT ASAL Development Team.</p>
+  </footer>
+
+  <!-- App Logic script -->
+  <script src="app.js"></script>
+</body>
+</html>
