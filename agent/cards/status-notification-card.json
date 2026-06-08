@@ -1,0 +1,95 @@
+{
+  "type": "AdaptiveCard",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "Container",
+      "style": "good",
+      "bleed": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "🎉 RIT STUDENT IT SERVICES RESTORED",
+          "weight": "Bolder",
+          "size": "Medium",
+          "color": "Good"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Dear Student,",
+          "weight": "Bolder",
+          "wrap": true
+        },
+        {
+          "type": "TextBlock",
+          "text": "We are pleased to inform you that your Redmond Institute of Technology (RIT) student IT account has been successfully reactivated following verification of your tuition fee payment.",
+          "wrap": true
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Restored Service Access Levels",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "M365 & Email:",
+              "value": "🟢 Fully Restored"
+            },
+            {
+              "title": "LMS (Canvas):",
+              "value": "🟢 Fully Restored"
+            },
+            {
+              "title": "Library & Wi-Fi:",
+              "value": "${libraryAccessStatus}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "ℹ️ Important Notice",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "${noticeText}",
+          "wrap": true,
+          "isSubtle": true
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "Go to Canvas LMS",
+      "url": "https://canvas.ritedu.edu"
+    },
+    {
+      "type": "Action.OpenUrl",
+      "title": "Student Portal",
+      "url": "https://portal.ritedu.edu"
+    }
+  ]
+}

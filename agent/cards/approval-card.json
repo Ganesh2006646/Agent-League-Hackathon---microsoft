@@ -1,0 +1,180 @@
+{
+  "type": "AdaptiveCard",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "bleed": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "🛡️ RIT ASAL ACCOUNT REACTIVATION REQUEST",
+          "weight": "Bolder",
+          "size": "Medium",
+          "color": "Accent"
+        },
+        {
+          "type": "TextBlock",
+          "text": "A human-in-the-loop (HITL) authorization is required for account reactivation.",
+          "isSubtle": true,
+          "wrap": true
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "items": [
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "Student ID:",
+              "value": "${studentId}"
+            },
+            {
+              "title": "Student Email:",
+              "value": "${studentEmail}"
+            },
+            {
+              "title": "Department:",
+              "value": "${department}"
+            },
+            {
+              "title": "Receipt Number:",
+              "value": "${receiptNumber}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "💵 Tuition Payment Status",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "Total Due:",
+              "value": "$${amountDue}"
+            },
+            {
+              "title": "Amount Paid:",
+              "value": "$${amountPaid}"
+            },
+            {
+              "title": "Coverage:",
+              "value": "${paymentPercentage}%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "⚠️ Hold Registry Check",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "Active Holds:",
+              "value": "${activeHoldsText}"
+            },
+            {
+              "title": "Hold Expirations:",
+              "value": "${holdExpirationsText}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "style": "accent",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "🧠 Agent Reasoning & Policy Citation",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "**Policy Citation:** ${policyCitation}",
+          "weight": "Bolder",
+          "wrap": true
+        },
+        {
+          "type": "TextBlock",
+          "text": "**Justification:** ${reasoningTrace}",
+          "wrap": true,
+          "isSubtle": true
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "✅ Approve Reactivation",
+      "style": "positive",
+      "id": "actionApprove",
+      "data": {
+        "action": "approve",
+        "studentId": "${studentId}",
+        "transactionId": "${transactionId}"
+      }
+    },
+    {
+      "type": "Action.Submit",
+      "title": "❌ Deny Request",
+      "style": "destructive",
+      "id": "actionDeny",
+      "data": {
+        "action": "deny",
+        "studentId": "${studentId}",
+        "transactionId": "${transactionId}"
+      }
+    },
+    {
+      "type": "Action.ShowCard",
+      "title": "⚠️ Escalate to Dean Office",
+      "card": {
+        "type": "AdaptiveCard",
+        "body": [
+          {
+            "type": "Input.Text",
+            "id": "escalationReason",
+            "placeholder": "Enter reason for manual policy escalation..."
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Submit",
+            "title": "Submit Escalation",
+            "data": {
+              "action": "escalate",
+              "studentId": "${studentId}",
+              "transactionId": "${transactionId}"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

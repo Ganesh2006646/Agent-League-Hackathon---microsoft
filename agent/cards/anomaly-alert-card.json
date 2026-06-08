@@ -1,0 +1,103 @@
+{
+  "type": "AdaptiveCard",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "Container",
+      "style": "attention",
+      "bleed": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "🚨 RIT SECURITY AUDIT WARNING: DEVIATION DETECTED",
+          "weight": "Bolder",
+          "size": "Medium",
+          "color": "Attention"
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "The ASAL Monitoring Engine has detected a rate-limiting threshold breach in account reactivations.",
+          "wrap": true
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Alert Details",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "FactSet",
+          "facts": [
+            {
+              "title": "Trigger Condition:",
+              "value": "More than 3 requests in a 10-minute window"
+            },
+            {
+              "title": "Operator Account:",
+              "value": "${operatorEmail}"
+            },
+            {
+              "title": "Time of Alert:",
+              "value": "${alertTimestamp} UTC"
+            },
+            {
+              "title": "Compliance Policy:",
+              "value": "RIT-POL-004 §4 (Security Rate-Limiting)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "separator": true,
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "Action Status",
+          "weight": "Bolder",
+          "size": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "⚠️ **Manual operator session has been temporarily throttled.**",
+          "color": "Attention",
+          "wrap": true
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "🔓 Dismiss & Reset Throttle",
+      "style": "positive",
+      "id": "actionResetThrottle",
+      "data": {
+        "action": "reset_throttle",
+        "operatorEmail": "${operatorEmail}"
+      }
+    },
+    {
+      "type": "Action.Submit",
+      "title": "🔒 Lock Operator Session",
+      "style": "destructive",
+      "id": "actionLockSession",
+      "data": {
+        "action": "lock_session",
+        "operatorEmail": "${operatorEmail}"
+      }
+    }
+  ]
+}
