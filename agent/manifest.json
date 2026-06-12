@@ -31,6 +31,18 @@
       }
     ]
   },
+  "bots": [
+    {
+      "botId": "c138f292-628a-4d2c-80a5-bdf7c94c92e6",
+      "scopes": [
+        "personal",
+        "groupChat",
+        "team"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
   "permissions": [
     "identity",
     "messageTeamMembers"

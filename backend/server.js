@@ -2,28 +2,277 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
-const { getGraphClient, getAccessToken } = require('./graph-client');
+const { MongoClient } = require('mongodb');
+const nodemailer = require('nodemailer');
+const { CloudAdapter, ConfigurationBotFrameworkAuthentication } = require('botbuilder');
+const { runAgentPipeline, isLive, initAzureClient } = require('./foundry-agents');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const SITE_ID = process.env.SHAREPOINT_SITE_ID;
-const TEAMS_WEBHOOK_URL = process.env.TEAMS_WEBHOOK_URL;
+const PORT = process.env.PORT || 3000;
 
 // ---------------------------------------------------------------------------
-// Rate-limit tracker: per requestedBy, sliding window of timestamps
-// RIT-POL-004 §4: >3 requests in 10 min from same requestedBy -> block
+// In-Memory Fallback Database (Indian Demo Data)
+// Used ONLY when MONGODB_URI is not set (local development)
 // ---------------------------------------------------------------------------
-const rateLimitMap = new Map(); // requestedBy -> [timestamps]
+const fallbackDatabase = {
+  users: {
+    "S10001": { id: "S10001", displayName: "Aarav Sharma", userPrincipalName: "aarav.sharma@ritedu.edu", department: "Computer Science", semester: "Semester 6", enrollmentYear: 2023, accountEnabled: false },
+    "S10002": { id: "S10002", displayName: "Priya Nair", userPrincipalName: "priya.nair@ritedu.edu", department: "Electronics & Communication", semester: "Semester 4", enrollmentYear: 2024, accountEnabled: false },
+    "S10003": { id: "S10003", displayName: "Rohan Deshmukh", userPrincipalName: "rohan.deshmukh@ritedu.edu", department: "Mechanical Engineering", semester: "Semester 6", enrollmentYear: 2023, accountEnabled: false },
+    "S10004": { id: "S10004", displayName: "Ananya Iyer", userPrincipalName: "ananya.iyer@ritedu.edu", department: "Business Administration", semester: "Semester 2", enrollmentYear: 2025, accountEnabled: false },
+    "S10005": { id: "S10005", displayName: "Karthik Reddy", userPrincipalName: "karthik.reddy@ritedu.edu", department: "Civil Engineering", semester: "Semester 4", enrollmentYear: 2024, accountEnabled: false },
+    "S10006": { id: "S10006", displayName: "Meera Joshi", userPrincipalName: "meera.joshi@ritedu.edu", department: "Data Science", semester: "Semester 6", enrollmentYear: 2023, accountEnabled: false },
+    "S10007": { id: "S10007", displayName: "Arjun Patel", userPrincipalName: "arjun.patel@ritedu.edu", department: "Information Technology", semester: "Semester 4", enrollmentYear: 2024, accountEnabled: false },
+    "S10008": { id: "S10008", displayName: "Diya Krishnan", userPrincipalName: "diya.krishnan@ritedu.edu", department: "Biotechnology", semester: "Semester 2", enrollmentYear: 2025, accountEnabled: false }
+  },
+  finance: {
+    "S10001": [{ StudentID: "S10001", AmountDue: 125000, AmountPaid: 125000, ReceiptNumber: "REC-2026-1001", PaymentDate: "2026-06-01", PaymentMethod: "NEFT", VerificationStatus: "Verified", Notes: "" }],
+    "S10002": [{ StudentID: "S10002", AmountDue: 150000, AmountPaid: 125000, ReceiptNumber: "REC-2026-1002", PaymentDate: "2026-05-28", PaymentMethod: "Financial Aid", VerificationStatus: "Verified", Notes: "Partial payment — 83.3% paid via Financial Aid." }],
+    "S10003": [{ StudentID: "S10003", AmountDue: 100000, AmountPaid: 100000, ReceiptNumber: "REC-2026-1003", PaymentDate: "2026-06-02", PaymentMethod: "UPI", VerificationStatus: "Verified", Notes: "" }],
+    "S10004": [{ StudentID: "S10004", AmountDue: 140000, AmountPaid: 140000, ReceiptNumber: "REC-2026-1004", PaymentDate: "2026-05-25", PaymentMethod: "Scholarship", VerificationStatus: "Verified", Notes: "Merit scholarship applied." }],
+    "S10005": [{ StudentID: "S10005", AmountDue: 120000, AmountPaid: 48000, ReceiptNumber: "REC-2026-1005", PaymentDate: "2026-05-30", PaymentMethod: "NEFT", VerificationStatus: "Pending", Notes: "Hardship application pending review." }],
+    "S10006": [{ StudentID: "S10006", AmountDue: 130000, AmountPaid: 130000, ReceiptNumber: "REC-2026-1006", PaymentDate: "2026-06-03", PaymentMethod: "Net Banking", VerificationStatus: "Verified", Notes: "" }],
+    "S10007": [{ StudentID: "S10007", AmountDue: 110000, AmountPaid: 88000, ReceiptNumber: "REC-2026-1007", PaymentDate: "2026-05-27", PaymentMethod: "RTGS", VerificationStatus: "Verified", Notes: "Partial payment — 80% paid." }],
+    "S10008": [{ StudentID: "S10008", AmountDue: 135000, AmountPaid: 0, ReceiptNumber: "", PaymentDate: "", PaymentMethod: "", VerificationStatus: "Unpaid", Notes: "No payment received this semester." }]
+  },
+  holds: {
+    "S10001": [],
+    "S10002": [{ StudentID: "S10002", HoldType: "Financial", HoldStatus: "Active", PlacedDate: "2026-05-20", ExpiryDate: null, PlacedBy: "Office of Accounts", Reason: "Unpaid tuition balance > ₹50,000 threshold" }],
+    "S10003": [{ StudentID: "S10003", HoldType: "AcademicIntegrity", HoldStatus: "Expired", PlacedDate: "2025-09-15", ExpiryDate: "2026-03-15", PlacedBy: "Dean of Academics", Reason: "Plagiarism sanction (probation ended March 2026)" }],
+    "S10004": [{ StudentID: "S10004", HoldType: "Investigation", HoldStatus: "Active", PlacedDate: "2026-05-28", ExpiryDate: null, PlacedBy: "Dean of Students", Reason: "Code of Conduct — Active Disciplinary Investigation" }],
+    "S10005": [{ StudentID: "S10005", HoldType: "Financial", HoldStatus: "Active", PlacedDate: "2026-05-20", ExpiryDate: null, PlacedBy: "Office of Accounts", Reason: "Unpaid tuition balance > ₹50,000 threshold" }],
+    "S10006": [],
+    "S10007": [{ StudentID: "S10007", HoldType: "Financial", HoldStatus: "Active", PlacedDate: "2026-05-22", ExpiryDate: null, PlacedBy: "Office of Accounts", Reason: "Outstanding balance of ₹22,000" }],
+    "S10008": [{ StudentID: "S10008", HoldType: "Financial", HoldStatus: "Active", PlacedDate: "2026-05-15", ExpiryDate: null, PlacedBy: "Office of Accounts", Reason: "Full semester fees unpaid" }]
+  },
+  auditLog: []
+};
+
+let auditLogIdCounter = 1;
+
+// ---------------------------------------------------------------------------
+// MongoDB Atlas Integration
+// ---------------------------------------------------------------------------
+let db = null;
+let mongoClient = null;
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = 'sutradhara';
+
+async function initDatabase() {
+  if (!MONGODB_URI || MONGODB_URI.includes('<')) {
+    console.log("ℹ️  MONGODB_URI not set. Using in-memory fallback for development.");
+    return;
+  }
+  try {
+    console.log("🔌 Connecting to MongoDB Atlas...");
+    mongoClient = new MongoClient(MONGODB_URI);
+    await mongoClient.connect();
+    db = mongoClient.db(DB_NAME);
+    console.log("✅ Connected to MongoDB Atlas successfully.");
+
+    // Auto-seed if collections are empty
+    await seedDatabase();
+  } catch (err) {
+    console.error("❌ MongoDB connection failed:", err.message);
+    console.log("   Falling back to in-memory database.");
+    db = null;
+  }
+}
+
+async function seedDatabase() {
+  const usersCount = await db.collection('users').countDocuments();
+  if (usersCount === 0) {
+    console.log("🌱 Seeding MongoDB with demo data (8 Indian students)...");
+
+    const users = Object.values(fallbackDatabase.users);
+    await db.collection('users').insertMany(users);
+
+    const finance = Object.values(fallbackDatabase.finance).flat();
+    await db.collection('finance').insertMany(finance);
+
+    const holds = Object.values(fallbackDatabase.holds).flat().filter(h => Object.keys(h).length > 0);
+    if (holds.length > 0) {
+      await db.collection('holds').insertMany(holds);
+    }
+
+    // Create indexes for performance
+    await db.collection('users').createIndex({ id: 1 }, { unique: true });
+    await db.collection('finance').createIndex({ StudentID: 1 });
+    await db.collection('holds').createIndex({ StudentID: 1 });
+    await db.collection('auditLog').createIndex({ Timestamp: -1 });
+
+    console.log("✅ Seeding complete: 8 students, finance records, and holds inserted.");
+  } else {
+    console.log(`ℹ️  Database already has ${usersCount} students. Skipping seed.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Database Access Layer (MongoDB or In-Memory Fallback)
+// ---------------------------------------------------------------------------
+async function getStudentProfile(studentId) {
+  if (db) {
+    return await db.collection('users').findOne({ id: studentId });
+  }
+  return fallbackDatabase.users[studentId] || null;
+}
+
+async function getAllStudents() {
+  if (db) {
+    return await db.collection('users').find({}).toArray();
+  }
+  return Object.values(fallbackDatabase.users);
+}
+
+async function getStudentFinance(studentId) {
+  if (db) {
+    return await db.collection('finance').find({ StudentID: studentId }).toArray();
+  }
+  return fallbackDatabase.finance[studentId] || [];
+}
+
+async function getStudentHolds(studentId) {
+  if (db) {
+    return await db.collection('holds').find({ StudentID: studentId }).toArray();
+  }
+  return fallbackDatabase.holds[studentId] || [];
+}
+
+async function updateStudentAccountStatus(studentId, enabled) {
+  if (db) {
+    await db.collection('users').updateOne({ id: studentId }, { $set: { accountEnabled: enabled } });
+  }
+  if (fallbackDatabase.users[studentId]) {
+    fallbackDatabase.users[studentId].accountEnabled = enabled;
+  }
+}
+
+async function getAuditLogs() {
+  if (db) {
+    return await db.collection('auditLog').find().sort({ Timestamp: -1 }).limit(50).toArray();
+  }
+  return [...fallbackDatabase.auditLog].reverse();
+}
+
+async function createAuditEntry(fields) {
+  const id = `AUDIT-${auditLogIdCounter++}`;
+  const record = { id, Timestamp: new Date().toISOString(), ...fields };
+
+  if (db) {
+    try {
+      await db.collection('auditLog').insertOne(record);
+    } catch (err) {
+      console.error("Failed to write audit to MongoDB:", err.message);
+    }
+  }
+  fallbackDatabase.auditLog.push(record);
+  console.log(`[Audit] ${fields.Action} — ${fields.StudentID} by ${fields.RequestedBy}`);
+  return record;
+}
+
+// ---------------------------------------------------------------------------
+// Nodemailer — Real Email
+// ---------------------------------------------------------------------------
+async function sendEmailNotification(to, subject, htmlContent) {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS ||
+      process.env.SMTP_HOST.includes('<') || process.env.SMTP_USER.includes('<')) {
+    console.log(`[Email] SMTP not configured. Skipping email to <${to}>.`);
+    return { sent: false, reason: 'SMTP not configured' };
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_PORT === '465',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
+
+    const mailOptions = {
+      from: process.env.SMTP_FROM || `"Sutradhara Portal" <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html: htmlContent
+    };
+
+    console.log(`📧 Sending email to ${to}...`);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent! MessageId: ${info.messageId}`);
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error("❌ Email send failed:", err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+function buildReactivationEmail(displayName, receiptNumber) {
+  return `
+    <div style="font-family: 'Segoe UI', sans-serif; padding: 24px; color: #1a1a1a; max-width: 600px; border: 1px solid #e0e0e0; border-radius: 12px; background: #fafafa;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h1 style="color: #1a73e8; font-size: 22px; margin: 0;">🎭 Sutradhara</h1>
+        <p style="color: #666; font-size: 12px; margin: 4px 0;">Student Account Lifecycle Agent</p>
+      </div>
+      <h2 style="color: #2e7d32; margin-top: 0;">Dear ${displayName},</h2>
+      <p>We are pleased to inform you that your <strong>RIT student account</strong> has been <strong style="color: #2e7d32;">successfully reactivated</strong>.</p>
+      <p>Our autonomous compliance system processed receipt <strong>${receiptNumber || 'N/A'}</strong>, verified your payment, audited active holds, and confirmed policy compliance.</p>
+      <div style="background: #e8f5e9; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #4caf50;">
+        <strong>Restored Access:</strong>
+        <ul style="margin: 8px 0 0 20px; padding: 0;">
+          <li>University Email (Outlook)</li>
+          <li>Learning Management System (Canvas LMS)</li>
+          <li>Campus Wi-Fi & Library Systems</li>
+          <li>Microsoft Teams</li>
+        </ul>
+      </div>
+      <p style="font-size: 0.9rem; color: #555;">Please allow 10–15 minutes for directory sync across all systems.</p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
+      <p style="font-size: 0.75rem; color: #999; text-align: center;">
+        This is an automated notification from Sutradhara Compliance Engine.<br>
+        Redmond Institute of Technology — Office of IT Administration
+      </p>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Microsoft Teams Bot (BotBuilder v4)
+// ---------------------------------------------------------------------------
+let botAdapter = null;
+const hasTeamsCreds = process.env.CLIENT_ID && process.env.CLIENT_SECRET && process.env.TENANT_ID &&
+  !process.env.CLIENT_ID.includes('<') && !process.env.CLIENT_SECRET.includes('<');
+
+if (hasTeamsCreds) {
+  try {
+    const authConfig = new ConfigurationBotFrameworkAuthentication({
+      MicrosoftAppId: process.env.CLIENT_ID,
+      MicrosoftAppPassword: process.env.CLIENT_SECRET,
+      MicrosoftAppTenantId: process.env.TENANT_ID
+    });
+    botAdapter = new CloudAdapter(authConfig);
+    console.log("✅ Teams BotBuilder adapter initialized.");
+  } catch (err) {
+    console.error("❌ BotBuilder init failed:", err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rate Limiter (3 requests per 10 minutes per user)
+// ---------------------------------------------------------------------------
+const rateLimitMap = new Map();
 
 function isRateLimited(requestedBy) {
   const now = Date.now();
-  const windowMs = 10 * 60 * 1000; // 10 minutes
+  const windowMs = 10 * 60 * 1000;
   let timestamps = rateLimitMap.get(requestedBy) || [];
-  timestamps = timestamps.filter((t) => now - t < windowMs);
-  rateLimitMap.set(requestedBy, timestamps);
+  timestamps = timestamps.filter(t => now - t < windowMs);
   if (timestamps.length >= 3) {
+    rateLimitMap.set(requestedBy, timestamps);
     return true;
   }
   timestamps.push(now);
@@ -31,647 +280,376 @@ function isRateLimited(requestedBy) {
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: query SharePoint list items
-// ---------------------------------------------------------------------------
-async function querySharePointList(siteId, listName, filter) {
-  const client = getGraphClient();
-  let url = `/sites/${siteId}/lists/${listName}/items?$expand=fields`;
-  if (filter) {
-    url += `&$filter=${filter}`;
-  }
-  try {
-    const result = await client.api(url).header('Prefer', 'HonorNonIndexedQueriesWarningMayFailRandomly').get();
-    return (result.value || []).map((item) => ({
-      id: item.id,
-      ...item.fields
-    }));
-  } catch (err) {
-    console.error(`[SharePoint] Error querying ${listName}:`, err.message);
-    return [];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: create SharePoint list item
-// ---------------------------------------------------------------------------
-async function createSharePointListItem(siteId, listName, fields) {
-  const client = getGraphClient();
-  const url = `/sites/${siteId}/lists/${listName}/items`;
-  try {
-    const result = await client.api(url).post({ fields });
-    return result;
-  } catch (err) {
-    console.error(`[SharePoint] Error creating item in ${listName}:`, err.message);
-    throw err;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: send Adaptive Card to Teams via incoming webhook
-// ---------------------------------------------------------------------------
-async function sendTeamsCard(webhookUrl, cardPayload) {
-  try {
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cardPayload)
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('[Teams] Webhook response error:', response.status, text);
-    }
-    return response.ok;
-  } catch (err) {
-    console.error('[Teams] Error sending card:', err.message);
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: send email via Graph API
-// ---------------------------------------------------------------------------
-async function sendEmail(fromUserId, toEmail, subject, body) {
-  const client = getGraphClient();
-  const message = {
-    message: {
-      subject,
-      body: { contentType: 'HTML', content: body },
-      toRecipients: [{ emailAddress: { address: toEmail } }]
-    },
-    saveToSentItems: true
-  };
-  try {
-    await client.api(`/users/${fromUserId}/sendMail`).post(message);
-    console.log(`[Email] Sent to ${toEmail}: ${subject}`);
-  } catch (err) {
-    console.error('[Email] Error sending mail:', err.message);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: build Teams Adaptive Card payload
-// ---------------------------------------------------------------------------
-function buildAdaptiveCard(student, finance, holds, reasoning, policyCitation, transactionId) {
-  const holdsText = holds.length > 0
-    ? holds.map((h) => `• ${h.HoldType} — ${h.HoldStatus} (placed ${h.PlacedDate || 'N/A'})`).join('\n')
-    : 'None';
-
-  const paymentPct = finance ? ((finance.AmountPaid / finance.AmountDue) * 100).toFixed(1) : 'N/A';
-
-  return {
-    type: 'message',
-    attachments: [
-      {
-        contentType: 'application/vnd.microsoft.card.adaptive',
-        contentUrl: null,
-        content: {
-          $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-          type: 'AdaptiveCard',
-          version: '1.4',
-          body: [
-            {
-              type: 'TextBlock',
-              text: '🎓 Sutradhara — Reactivation Escalation',
-              weight: 'Bolder',
-              size: 'Large',
-              wrap: true
-            },
-            {
-              type: 'FactSet',
-              facts: [
-                { title: 'Student', value: student.displayName || student.id },
-                { title: 'Student ID', value: student.id || 'N/A' },
-                { title: 'Email', value: student.userPrincipalName || 'N/A' },
-                { title: 'Department', value: student.department || 'N/A' },
-                { title: 'Transaction', value: transactionId }
-              ]
-            },
-            {
-              type: 'TextBlock',
-              text: '**Payment Information**',
-              weight: 'Bolder',
-              spacing: 'Medium',
-              wrap: true
-            },
-            {
-              type: 'FactSet',
-              facts: [
-                { title: 'Amount Due', value: finance ? `$${finance.AmountDue}` : 'N/A' },
-                { title: 'Amount Paid', value: finance ? `$${finance.AmountPaid}` : 'N/A' },
-                { title: 'Payment %', value: `${paymentPct}%` },
-                { title: 'Receipt', value: finance ? finance.ReceiptNumber : 'N/A' },
-                { title: 'Verification', value: finance ? finance.VerificationStatus : 'N/A' }
-              ]
-            },
-            {
-              type: 'TextBlock',
-              text: '**Holds Summary**',
-              weight: 'Bolder',
-              spacing: 'Medium',
-              wrap: true
-            },
-            {
-              type: 'TextBlock',
-              text: holdsText,
-              wrap: true
-            },
-            {
-              type: 'TextBlock',
-              text: '**Reasoning Trace**',
-              weight: 'Bolder',
-              spacing: 'Medium',
-              wrap: true
-            },
-            {
-              type: 'TextBlock',
-              text: reasoning,
-              wrap: true
-            },
-            {
-              type: 'TextBlock',
-              text: `**Policy:** ${policyCitation}`,
-              wrap: true,
-              spacing: 'Small'
-            }
-          ],
-          actions: [
-            {
-              type: 'Action.Submit',
-              title: '✅ Approve',
-              data: { action: 'approve', studentId: student.id, transactionId }
-            },
-            {
-              type: 'Action.Submit',
-              title: '❌ Deny',
-              data: { action: 'deny', studentId: student.id, transactionId }
-            },
-            {
-              type: 'Action.Submit',
-              title: '⏫ Escalate Further',
-              data: { action: 'escalate', studentId: student.id, transactionId }
-            }
-          ]
-        }
-      }
-    ]
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helper: create audit log entry
-// ---------------------------------------------------------------------------
-async function createAuditEntry(fields) {
-  return createSharePointListItem(SITE_ID, 'AuditLog', fields);
-}
-
 // ===========================================================================
-// ROUTES
+// API ROUTES
 // ===========================================================================
 
-// ---- Health check ---------------------------------------------------------
+// Health Check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Sutradhara Backend' });
+  res.json({
+    status: 'ok',
+    service: 'Sutradhara Backend',
+    database: db ? 'MongoDB Atlas Connected' : 'In-Memory Fallback',
+    aiModel: isLive() ? 'Azure AI Foundry (Live)' : 'Not Connected',
+    teamsBot: botAdapter ? 'Active' : 'Not Configured',
+    smtp: process.env.SMTP_HOST && !process.env.SMTP_HOST.includes('<') ? 'Configured' : 'Not Configured'
+  });
 });
 
-// ---- Get student profile + finance + holds --------------------------------
+// List All Students
+app.get('/api/students', async (req, res) => {
+  const students = await getAllStudents();
+  res.json(students);
+});
+
+// Get Student Full Profile
 app.get('/api/student/:studentId', async (req, res) => {
   const { studentId } = req.params;
-  console.log(`[GET /api/student/${studentId}] Fetching student data...`);
+  const profile = await getStudentProfile(studentId);
+  const finance = await getStudentFinance(studentId);
+  const holds = await getStudentHolds(studentId);
 
-  try {
-    const client = getGraphClient();
-
-    // Fetch profile from Entra ID
-    let profile;
-    try {
-      profile = await client
-        .api(`/users/${studentId}`)
-        .select('id,displayName,userPrincipalName,accountEnabled,department,jobTitle')
-        .get();
-    } catch (err) {
-      console.error('[Graph] Error fetching user profile:', err.message);
-      profile = null;
-    }
-
-    // Fetch finance records from SharePoint
-    const finance = await querySharePointList(
-      SITE_ID,
-      'FinanceLedger',
-      `fields/StudentID eq '${studentId}'`
-    );
-
-    // Fetch holds from SharePoint
-    const holds = await querySharePointList(
-      SITE_ID,
-      'HoldRegistry',
-      `fields/StudentID eq '${studentId}'`
-    );
-
-    if (!profile) {
-      return res.status(404).json({
-        error: 'Student not found',
-        studentId,
-        finance,
-        holds
-      });
-    }
-
-    res.json({ profile, finance, holds });
-  } catch (err) {
-    console.error('[GET /api/student] Unhandled error:', err.message);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+  if (!profile) {
+    return res.status(404).json({ error: 'Student not found', studentId });
   }
+  res.json({ profile, finance, holds });
 });
 
-// ---- Reactivation request -------------------------------------------------
+// Get Audit Logs
+app.get('/api/audit', async (req, res) => {
+  const logs = await getAuditLogs();
+  res.json(logs);
+});
+
+// Agent Status
+app.get('/api/agents/status', (req, res) => {
+  res.json({
+    status: 'active',
+    mode: isLive() ? 'Azure AI Foundry (Live)' : 'Awaiting Credentials',
+    agents: [
+      { name: 'Orchestrator Agent', role: 'Synthesis & Routing' },
+      { name: 'Identity Verifier Agent', role: 'Directory Verification' },
+      { name: 'Financial Analyst Agent', role: 'Ledger Audit' },
+      { name: 'Risk Sentinel Agent', role: 'Hold & Rate Limit Analysis' },
+      { name: 'Policy Compliance Agent', role: 'RAG Policy Evaluation' }
+    ]
+  });
+});
+
+// Reactivation API (direct)
 app.post('/api/reactivate', async (req, res) => {
   const { studentId, receiptNumber, requestedBy } = req.body;
-  console.log(`[POST /api/reactivate] studentId=${studentId} receipt=${receiptNumber} requestedBy=${requestedBy}`);
+  console.log(`[POST /api/reactivate] student=${studentId} receipt=${receiptNumber} by=${requestedBy}`);
 
   if (!studentId || !requestedBy) {
     return res.status(400).json({ error: 'studentId and requestedBy are required' });
   }
 
-  // RIT-POL-004 §4 — rate limiting
-  if (isRateLimited(requestedBy)) {
-    console.warn(`[RateLimit] Blocked request from ${requestedBy}`);
-    return res.status(429).json({
-      error: 'Rate limit exceeded',
-      detail: 'More than 3 reactivation requests in 10 minutes from the same requester.',
-      policyCitation: 'RIT-POL-004 §4'
-    });
-  }
-
+  const rateLimitExceeded = isRateLimited(requestedBy);
   const transactionId = uuidv4();
 
   try {
-    const client = getGraphClient();
-
-    // 1. Fetch student profile
-    let profile;
-    try {
-      profile = await client
-        .api(`/users/${studentId}`)
-        .select('id,displayName,userPrincipalName,accountEnabled,department,jobTitle')
-        .get();
-    } catch (err) {
-      return res.status(404).json({ error: 'Student not found in directory', details: err.message });
+    const profile = await getStudentProfile(studentId);
+    if (!profile) {
+      return res.status(404).json({ error: 'Student not found in directory' });
     }
 
-    // 2. Fetch finance record
-    const financeRecords = await querySharePointList(
-      SITE_ID,
-      'FinanceLedger',
-      `fields/StudentID eq '${studentId}'`
-    );
-    const finance = financeRecords.length > 0 ? financeRecords[0] : null;
+    const financeRecords = await getStudentFinance(studentId);
+    const holds = await getStudentHolds(studentId);
 
-    // 3. Fetch holds
-    const holds = await querySharePointList(
-      SITE_ID,
-      'HoldRegistry',
-      `fields/StudentID eq '${studentId}'`
-    );
+    const dbWrapper = {
+      users: { [studentId]: profile },
+      finance: { [studentId]: financeRecords },
+      holds: { [studentId]: holds }
+    };
 
-    // 4. Run Sutradhara reasoning engine
-    const reasoningTrace = [];
-    let decision = null; // 'APPROVE_FULL' | 'APPROVE_PARTIAL' | 'DENY' | 'ESCALATE'
-    let policyCitation = '';
-    const today = new Date();
-
-    // 4a. Check for blocking holds
-    const activeHolds = holds.filter((h) => h.HoldStatus === 'Active');
-    const investigationHold = activeHolds.find((h) => h.HoldType === 'Investigation');
-    const integrityHoldActive = activeHolds.find((h) => h.HoldType === 'AcademicIntegrity');
-
-    // Check for expired AcademicIntegrity holds
-    const integrityHoldExpired = holds.find(
-      (h) => h.HoldType === 'AcademicIntegrity' && h.ExpiryDate && new Date(h.ExpiryDate) < today
-    );
-
-    if (investigationHold) {
-      reasoningTrace.push('Active Investigation hold found — reactivation DENIED per policy.');
-      decision = 'DENY';
-      policyCitation = 'RIT-POL-003 §3: Active Investigation hold blocks reactivation';
-    } else if (integrityHoldActive && !integrityHoldExpired) {
-      reasoningTrace.push('Active AcademicIntegrity hold found (not expired) — reactivation DENIED per policy.');
-      decision = 'DENY';
-      policyCitation = 'RIT-POL-003 §3: Active AcademicIntegrity hold blocks reactivation';
-    } else {
-      if (integrityHoldExpired) {
-        reasoningTrace.push(
-          `AcademicIntegrity hold exists but expired on ${integrityHoldExpired.ExpiryDate} — treating as expired per RIT-POL-003 §4. Proceeding.`
-        );
-      }
-
-      // 4b. Evaluate payment
-      if (!finance) {
-        reasoningTrace.push('No finance record found for this student.');
-        decision = 'DENY';
-        policyCitation = 'No payment record on file';
-      } else {
-        const percentage = (finance.AmountPaid / finance.AmountDue) * 100;
-        reasoningTrace.push(`Payment: $${finance.AmountPaid} / $${finance.AmountDue} = ${percentage.toFixed(1)}%`);
-
-        // Check for other active blocking holds (Financial, Probation, Administrative)
-        const otherBlockingHolds = activeHolds.filter(
-          (h) => h.HoldType !== 'AcademicIntegrity' && h.HoldType !== 'Investigation'
-        );
-
-        if (percentage >= 100 && otherBlockingHolds.length === 0) {
-          reasoningTrace.push('Full payment verified, no blocking holds — APPROVE FULL reactivation.');
-          decision = 'APPROVE_FULL';
-          policyCitation = 'RIT-POL-001 §6.3: Full payment, no holds → standard reactivation';
-        } else if (percentage >= 100 && otherBlockingHolds.length > 0) {
-          reasoningTrace.push(
-            `Full payment verified but ${otherBlockingHolds.length} other active hold(s) present — ESCALATE for review.`
-          );
-          decision = 'ESCALATE';
-          policyCitation = 'RIT-POL-001 §7.2: Full payment with active holds → escalation required';
-        } else if (percentage >= 80) {
-          reasoningTrace.push(
-            `Payment >= 80% but < 100% (${percentage.toFixed(1)}%) — APPROVE PARTIAL (core courses only), escalating for IT approval.`
-          );
-          decision = 'ESCALATE';
-          policyCitation = 'RIT-POL-001 §7.2: Payment ≥ 80% → partial access (escalate for IT approval)';
-        } else {
-          // percentage < 80
-          const hardshipFlag = finance.Notes && finance.Notes.toLowerCase().includes('hardship');
-          if (hardshipFlag) {
-            reasoningTrace.push(
-              `Payment < 80% (${percentage.toFixed(1)}%) but hardship flag detected — ESCALATE for 72hr temporary access.`
-            );
-            decision = 'ESCALATE';
-            policyCitation = 'RIT-POL-005 §2: Payment < 80% with hardship flag → 72hr temporary access (escalate)';
-          } else {
-            reasoningTrace.push(
-              `Payment < 80% (${percentage.toFixed(1)}%) and no hardship flag — DENY reactivation.`
-            );
-            decision = 'DENY';
-            policyCitation = 'RIT-POL-001 §7.2: Insufficient payment without hardship provision';
-          }
-        }
-      }
-    }
-
-    // 5. Execute decision
+    const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
+    const { decision, confidence, summary, citations, reasoningTrace, agentDetails } = result;
     const reasoningText = reasoningTrace.join(' | ');
 
-    if (decision === 'APPROVE_FULL') {
-      // Enable the account
-      await client.api(`/users/${studentId}`).patch({ accountEnabled: true });
-      reasoningTrace.push('Account re-enabled in Entra ID.');
-
-      // Create audit log
+    // Execute decision
+    if (decision === 'APPROVE') {
+      await updateStudentAccountStatus(studentId, true);
       await createAuditEntry({
-        StudentID: studentId,
-        RequestedBy: requestedBy,
-        ApprovedBy: 'Sutradhara-Auto',
-        Action: 'Reactivate',
-        PolicyCitation: policyCitation,
-        ReasoningTrace: reasoningText,
-        ExecutionStatus: 'Executed',
-        ReceiptNumber: receiptNumber || '',
-        TransactionId: transactionId
+        StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: 'Sutradhara-Auto',
+        Action: 'Reactivate', PolicyCitation: citations[0] || 'RIT-POL-001',
+        ReasoningTrace: reasoningText, ExecutionStatus: 'Executed',
+        ReceiptNumber: receiptNumber || '', TransactionId: transactionId
       });
-
-      // Send confirmation email
-      await sendEmail(
-        requestedBy,
-        profile.userPrincipalName,
-        'Account Reactivated — Sutradhara',
-        `<h2>Your account has been reactivated</h2>
-         <p>Dear ${profile.displayName},</p>
-         <p>Your student account has been successfully reactivated following verification of full payment.</p>
-         <p><strong>Transaction ID:</strong> ${transactionId}</p>
-         <p><strong>Policy:</strong> ${policyCitation}</p>
-         <p><strong>Receipt:</strong> ${receiptNumber || 'N/A'}</p>
-         <p>If you have questions, please contact the registrar's office.</p>
-         <p>— Sutradhara Automated Agent</p>`
-      );
-
-      return res.json({
-        status: 'approved',
-        decision: 'approve',
-        transactionId,
-        studentId,
-        displayName: profile.displayName,
-        approvedBy: 'Sutradhara-Auto',
-        reasoningTrace: reasoningText,
-        policyCitation,
-        message: 'Account has been reactivated successfully.'
+      await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, receiptNumber));
+    } else if (decision === 'DENY') {
+      await createAuditEntry({
+        StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
+        Action: 'Deny', PolicyCitation: citations[0] || 'RIT-POL-001',
+        ReasoningTrace: reasoningText, ExecutionStatus: 'Denied',
+        ReceiptNumber: receiptNumber || '', TransactionId: transactionId
+      });
+    } else {
+      await createAuditEntry({
+        StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
+        Action: 'Escalate', PolicyCitation: citations[0] || 'RIT-POL-001',
+        ReasoningTrace: reasoningText, ExecutionStatus: 'Pending',
+        ReceiptNumber: receiptNumber || '', TransactionId: transactionId
       });
     }
 
-    if (decision === 'DENY') {
-      // Create audit log
-      await createAuditEntry({
-        StudentID: studentId,
-        RequestedBy: requestedBy,
-        ApprovedBy: '',
-        Action: 'Deny',
-        PolicyCitation: policyCitation,
-        ReasoningTrace: reasoningText,
-        ExecutionStatus: 'Denied',
-        ReceiptNumber: receiptNumber || '',
-        TransactionId: transactionId
-      });
+    return res.json({
+      status: decision.toLowerCase(),
+      decision: decision.toLowerCase(),
+      transactionId, studentId,
+      displayName: profile.displayName,
+      reasoningTrace: reasoningText,
+      policyCitation: citations[0] || 'RIT-POL-001',
+      message: summary,
+      confidence,
+      agentDetails
+    });
 
-      return res.json({
-        status: 'denied',
-        decision: 'deny',
-        transactionId,
-        studentId,
-        displayName: profile.displayName,
-        approvedBy: '',
-        reasoningTrace: reasoningText,
-        policyCitation,
-        message: 'Reactivation denied based on policy evaluation.'
-      });
-    }
-
-    if (decision === 'ESCALATE') {
-      // Create audit log with Pending status
-      await createAuditEntry({
-        StudentID: studentId,
-        RequestedBy: requestedBy,
-        ApprovedBy: '',
-        Action: 'Escalate',
-        PolicyCitation: policyCitation,
-        ReasoningTrace: reasoningText,
-        ExecutionStatus: 'Pending',
-        ReceiptNumber: receiptNumber || '',
-        TransactionId: transactionId
-      });
-
-      // Send Adaptive Card to Teams
-      const card = buildAdaptiveCard(
-        profile,
-        finance,
-        holds,
-        reasoningText,
-        policyCitation,
-        transactionId
-      );
-
-      const cardSent = await sendTeamsCard(TEAMS_WEBHOOK_URL, card);
-
-      return res.json({
-        status: 'escalated',
-        decision: 'escalate',
-        transactionId,
-        studentId,
-        displayName: profile.displayName,
-        approvedBy: '',
-        reasoningTrace: reasoningText,
-        policyCitation,
-        teamsNotification: cardSent ? 'sent' : 'failed',
-        message: 'Request has been escalated to an administrator for review.'
-      });
-    }
-
-    // Fallback (should not reach here)
-    return res.status(500).json({ error: 'Unexpected decision state', reasoningTrace });
   } catch (err) {
-    console.error('[POST /api/reactivate] Unhandled error:', err.message);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    console.error("Pipeline error:", err);
+    return res.status(500).json({ error: 'Agent pipeline execution failed', details: err.message });
   }
 });
 
-// ---- Approve/Deny callback from Teams or admin UI -------------------------
+// Chat API (natural language interface)
+app.post('/api/chat', async (req, res) => {
+  const { message, requestedBy } = req.body;
+  console.log(`[POST /api/chat] "${message}" by ${requestedBy}`);
+
+  if (!message || !requestedBy) {
+    return res.status(400).json({ error: 'message and requestedBy are required' });
+  }
+
+  const studentIdMatch = message.match(/S\d{5}/i);
+  const receiptMatch = message.match(/REC-\d{4}-\d{3,4}|REC-\S+/i);
+
+  const studentId = studentIdMatch ? studentIdMatch[0].toUpperCase() : null;
+  const receiptNumber = receiptMatch ? receiptMatch[0].toUpperCase() : null;
+
+  if (studentId) {
+    const rateLimitExceeded = isRateLimited(requestedBy);
+    const transactionId = uuidv4();
+
+    try {
+      const profile = await getStudentProfile(studentId);
+      if (!profile) {
+        return res.json({
+          type: 'conversational',
+          message: `❌ Student ID **${studentId}** not found in the directory. Please verify the ID.`
+        });
+      }
+
+      const financeRecords = await getStudentFinance(studentId);
+      const holds = await getStudentHolds(studentId);
+
+      const dbWrapper = {
+        users: { [studentId]: profile },
+        finance: { [studentId]: financeRecords },
+        holds: { [studentId]: holds }
+      };
+
+      const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
+      const { decision, confidence, summary, citations, reasoningTrace, agentDetails } = result;
+
+      // Execute decisions
+      if (decision === 'APPROVE') {
+        await updateStudentAccountStatus(studentId, true);
+        await createAuditEntry({
+          StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: 'Sutradhara-Auto',
+          Action: 'Reactivate', PolicyCitation: citations[0] || 'RIT-POL-001',
+          ReasoningTrace: reasoningTrace.join(' | '), ExecutionStatus: 'Executed',
+          ReceiptNumber: receiptNumber || '', TransactionId: transactionId
+        });
+        await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, receiptNumber));
+      } else if (decision === 'DENY') {
+        await createAuditEntry({
+          StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
+          Action: 'Deny', PolicyCitation: citations[0] || 'RIT-POL-001',
+          ReasoningTrace: reasoningTrace.join(' | '), ExecutionStatus: 'Denied',
+          ReceiptNumber: receiptNumber || '', TransactionId: transactionId
+        });
+      } else {
+        await createAuditEntry({
+          StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
+          Action: 'Escalate', PolicyCitation: citations[0] || 'RIT-POL-001',
+          ReasoningTrace: reasoningTrace.join(' | '), ExecutionStatus: 'Pending',
+          ReceiptNumber: receiptNumber || '', TransactionId: transactionId
+        });
+      }
+
+      return res.json({
+        type: 'pipeline',
+        decision, confidence, summary, citations, reasoningTrace, agentDetails,
+        studentId, receiptNumber, transactionId
+      });
+    } catch (err) {
+      console.error("[Chat] Pipeline failed:", err);
+      return res.status(500).json({ error: 'Agent pipeline failed', details: err.message });
+    }
+  }
+
+  // No student ID detected — conversational greeting
+  return res.json({
+    type: 'conversational',
+    message: `Hello! I am **Sutradhara**, the autonomous Student Account Lifecycle Agent.
+
+To process a reactivation, provide a **Student ID** and **Payment Receipt**. For example:
+
+> *"Reactivate student S10001 with receipt REC-2026-1001"*
+
+**Available student IDs**: S10001 through S10008.`
+  });
+});
+
+// Chat Thread (for UI)
+app.post('/api/chat/thread', (req, res) => {
+  res.json({ threadId: uuidv4() });
+});
+
+// Admin Callback (manual approve/deny for escalated cases)
 app.post('/api/approve-callback', async (req, res) => {
   const { studentId, transactionId, approvedBy, action } = req.body;
-  console.log(`[POST /api/approve-callback] studentId=${studentId} action=${action} approvedBy=${approvedBy}`);
+  console.log(`[Callback] student=${studentId} action=${action} by=${approvedBy}`);
 
   if (!studentId || !transactionId || !approvedBy || !action) {
     return res.status(400).json({ error: 'studentId, transactionId, approvedBy, and action are required' });
   }
 
+  const profile = await getStudentProfile(studentId);
+
+  if (action === 'approve') {
+    await updateStudentAccountStatus(studentId, true);
+    if (db) {
+      await db.collection('auditLog').updateOne(
+        { TransactionId: transactionId },
+        { $set: { ApprovedBy: approvedBy, ExecutionStatus: 'Approved', Action: 'Reactivate' } }
+      );
+    }
+    if (profile) {
+      await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, 'Manual Approval'));
+    }
+    return res.json({ status: 'approved', transactionId, studentId, approvedBy });
+  }
+
+  if (action === 'deny') {
+    if (db) {
+      await db.collection('auditLog').updateOne(
+        { TransactionId: transactionId },
+        { $set: { ApprovedBy: approvedBy, ExecutionStatus: 'Denied', Action: 'Deny' } }
+      );
+    }
+    return res.json({ status: 'denied', transactionId, studentId, approvedBy });
+  }
+
+  return res.status(400).json({ error: `Unknown action: ${action}` });
+});
+
+// ---------------------------------------------------------------------------
+// Teams Bot Webhook
+// ---------------------------------------------------------------------------
+app.post('/api/messages', async (req, res) => {
+  console.log("[POST /api/messages] Teams Bot webhook received.");
+
+  if (!botAdapter) {
+    return res.status(200).json({ message: "Teams Bot not configured. Set CLIENT_ID, CLIENT_SECRET, TENANT_ID in .env." });
+  }
+
   try {
-    const client = getGraphClient();
+    await botAdapter.process(req, res, async (context) => {
+      if (context.activity.type === 'message') {
+        const messageText = (context.activity.text || '').trim();
+        console.log(`[Teams] Message: "${messageText}"`);
 
-    if (action === 'approve') {
-      // Enable the account
-      await client.api(`/users/${studentId}`).patch({ accountEnabled: true });
-      console.log(`[Callback] Account ${studentId} enabled by ${approvedBy}`);
+        const studentIdMatch = messageText.match(/S\d{5}/i);
+        const receiptMatch = messageText.match(/REC-\d{4}-\d{3,4}|REC-\S+/i);
+        const studentId = studentIdMatch ? studentIdMatch[0].toUpperCase() : null;
+        const receiptNumber = receiptMatch ? receiptMatch[0].toUpperCase() : null;
 
-      // Update audit log — find the pending entry and update it
-      const auditRecords = await querySharePointList(
-        SITE_ID,
-        'AuditLog',
-        `fields/TransactionId eq '${transactionId}'`
-      );
+        if (studentId) {
+          await context.sendActivity(`🔍 Starting **Sutradhara** multi-agent pipeline for **${studentId}**...`);
 
-      if (auditRecords.length > 0) {
-        const auditItemId = auditRecords[0].id;
-        await client.api(`/sites/${SITE_ID}/lists/AuditLog/items/${auditItemId}/fields`).patch({
-          ApprovedBy: approvedBy,
-          ExecutionStatus: 'Approved',
-          Action: 'Reactivate'
-        });
+          const requestedBy = context.activity.from.name || 'Teams User';
+          const rateLimitExceeded = isRateLimited(context.activity.from.id || requestedBy);
+          const transactionId = uuidv4();
+
+          const profile = await getStudentProfile(studentId);
+          if (!profile) {
+            await context.sendActivity(`❌ Student ID **${studentId}** not found in directory.`);
+            return;
+          }
+
+          const financeRecords = await getStudentFinance(studentId);
+          const holds = await getStudentHolds(studentId);
+          const dbWrapper = {
+            users: { [studentId]: profile },
+            finance: { [studentId]: financeRecords },
+            holds: { [studentId]: holds }
+          };
+
+          const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
+
+          if (result.decision === 'APPROVE') {
+            await updateStudentAccountStatus(studentId, true);
+            await createAuditEntry({
+              StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: 'Sutradhara-Auto',
+              Action: 'Reactivate', PolicyCitation: result.citations[0] || 'RIT-POL-001',
+              ReasoningTrace: result.reasoningTrace.join(' | '), ExecutionStatus: 'Executed',
+              ReceiptNumber: receiptNumber || '', TransactionId: transactionId
+            });
+            await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, receiptNumber));
+          }
+
+          await context.sendActivity(
+            `### 📊 Verdict: **${result.decision}**\n\n` +
+            `**Confidence:** ${(result.confidence * 100).toFixed(0)}%\n\n` +
+            `${result.summary}\n\n` +
+            `**Policy Citations:** ${result.citations.join(', ')}`
+          );
+        } else {
+          await context.sendActivity(
+            `Hello! I'm **Sutradhara**, the Student Account Lifecycle Agent.\n\n` +
+            `To reactivate an account, send a message with a **Student ID** (e.g., **S10001**) and **Payment Receipt** (e.g., **REC-2026-1001**).`
+          );
+        }
       }
-
-      // Send confirmation email
-      let profile;
-      try {
-        profile = await client
-          .api(`/users/${studentId}`)
-          .select('displayName,userPrincipalName')
-          .get();
-      } catch (e) {
-        profile = { displayName: studentId, userPrincipalName: '' };
-      }
-
-      if (profile.userPrincipalName) {
-        await sendEmail(
-          approvedBy,
-          profile.userPrincipalName,
-          'Account Reactivated (Manual Approval) — Sutradhara',
-          `<h2>Your account has been reactivated</h2>
-           <p>Dear ${profile.displayName},</p>
-           <p>Your student account has been manually approved and reactivated by an administrator.</p>
-           <p><strong>Transaction ID:</strong> ${transactionId}</p>
-           <p><strong>Approved By:</strong> ${approvedBy}</p>
-           <p>If you have questions, please contact the registrar's office.</p>
-           <p>— Sutradhara Automated Agent</p>`
-        );
-      }
-
-      return res.json({
-        status: 'approved',
-        transactionId,
-        studentId,
-        approvedBy,
-        message: 'Account reactivated and audit log updated.'
-      });
-    }
-
-    if (action === 'deny') {
-      // Update audit log
-      const auditRecords = await querySharePointList(
-        SITE_ID,
-        'AuditLog',
-        `fields/TransactionId eq '${transactionId}'`
-      );
-
-      if (auditRecords.length > 0) {
-        const auditItemId = auditRecords[0].id;
-        await client.api(`/sites/${SITE_ID}/lists/AuditLog/items/${auditItemId}/fields`).patch({
-          ApprovedBy: approvedBy,
-          ExecutionStatus: 'Denied',
-          Action: 'Deny'
-        });
-      }
-
-      return res.json({
-        status: 'denied',
-        transactionId,
-        studentId,
-        approvedBy,
-        message: 'Reactivation denied. Audit log updated.'
-      });
-    }
-
-    if (action === 'escalate') {
-      // Update audit log with further escalation
-      const auditRecords = await querySharePointList(
-        SITE_ID,
-        'AuditLog',
-        `fields/TransactionId eq '${transactionId}'`
-      );
-
-      if (auditRecords.length > 0) {
-        const auditItemId = auditRecords[0].id;
-        await client.api(`/sites/${SITE_ID}/lists/AuditLog/items/${auditItemId}/fields`).patch({
-          ApprovedBy: approvedBy,
-          ExecutionStatus: 'Pending',
-          Action: 'Escalate',
-          ReasoningTrace: `Further escalated by ${approvedBy} on ${new Date().toISOString()}`
-        });
-      }
-
-      return res.json({
-        status: 'escalated',
-        transactionId,
-        studentId,
-        approvedBy,
-        message: 'Request further escalated. Audit log updated.'
-      });
-    }
-
-    return res.status(400).json({ error: `Unknown action: ${action}. Must be approve, deny, or escalate.` });
+    });
   } catch (err) {
-    console.error('[POST /api/approve-callback] Unhandled error:', err.message);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    console.error("Teams webhook error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ===========================================================================
-// Start server
-// ===========================================================================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n🎭 Sutradhara Backend running on http://localhost:${PORT}`);
-  console.log(`   Health check: http://localhost:${PORT}/api/health\n`);
+// ---------------------------------------------------------------------------
+// Static File Serving (Dashboard)
+// ---------------------------------------------------------------------------
+const dashboardPath = require('path').join(__dirname, '../dashboard');
+if (require('fs').existsSync(dashboardPath)) {
+  app.use(express.static(dashboardPath));
+  app.get('/', (req, res) => res.sendFile(require('path').join(dashboardPath, 'index.html')));
+}
+
+// ---------------------------------------------------------------------------
+// Start Server
+// ---------------------------------------------------------------------------
+initDatabase().then(async () => {
+  try {
+    await initAzureClient();
+  } catch (err) {
+    console.log(`ℹ️  Azure AI client not initialized on boot: ${err.message}`);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`\n🎭 ═══════════════════════════════════════════════════════`);
+    console.log(`🎭  Sutradhara Backend — http://localhost:${PORT}`);
+    console.log(`🎭 ═══════════════════════════════════════════════════════`);
+    console.log(`   Database:     ${db ? '✅ MongoDB Atlas' : '⚠️  In-Memory Fallback'}`);
+    console.log(`   AI Model:     ${isLive() ? '✅ Azure AI Foundry' : '⚠️  Not Connected (set .env)'}`);
+    console.log(`   Teams Bot:    ${botAdapter ? '✅ Active' : '⚠️  Not Configured'}`);
+    console.log(`   SMTP Email:   ${process.env.SMTP_HOST && !process.env.SMTP_HOST.includes('<') ? '✅ Configured' : '⚠️  Not Configured'}`);
+    console.log(`   Dashboard:    http://localhost:${PORT}/`);
+    console.log(`   Health:       http://localhost:${PORT}/api/health`);
+    console.log(`   Students:     http://localhost:${PORT}/api/students`);
+    console.log(`   Teams Bot:    http://localhost:${PORT}/api/messages`);
+    console.log(`🎭 ═══════════════════════════════════════════════════════\n`);
+  });
 });

@@ -19,7 +19,7 @@ You operate under a strict execution policy:
 Follow this workflow for every request:
 
 ### 1. Data Intake (Collect)
-- Receive the Student ID (e.g., S12345) and payment receipt reference number.
+- Receive the Student ID (e.g., S10001) and payment receipt reference number.
 - If missing, request them politely.
 
 ### 2. Verification (Verify)

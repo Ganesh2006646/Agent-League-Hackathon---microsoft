@@ -3,7 +3,7 @@
   "id": "rit-sutradhara-agent",
   "name": "Sutradhara — Student Account Lifecycle Agent",
   "version": "1.0.0",
-  "description": "Autonomous M365 Copilot agent that automates student account lifecycle reactivations based on tuition payments, grounded in RIT administrative policies.",
+  "description": "Autonomous multi-agent system that processes student account reactivation requests using AI reasoning, policy compliance checks, and financial verification.",
   "instructions": "$file:instructions.txt",
   "capabilities": [
     {
@@ -11,44 +11,10 @@
       "status": "disabled"
     }
   ],
-  "knowledge": {
-    "foundryKBs": [
-      {
-        "id": "rit-policy-grounding-kb",
-        "description": "Contains RIT policy documentation (RIT-POL-001 through RIT-POL-005) covering financial holds, reactivation rules, academic integrity priorities, audit requirements, and hardship guidelines."
-      }
-    ],
-    "sharepointSites": [
-      {
-        "url": "https://ritedu.sharepoint.com/sites/BursarOffice",
-        "description": "Access to RIT Student Financial Ledger and Hold Registry lists."
-      }
-    ]
-  },
   "actions": [
     {
-      "id": "graphAccountAction",
-      "file": "plugins/graph-account-api.yaml",
-      "auth": {
-        "type": "OAuth2",
-        "referenceId": "entra-connection"
-      }
-    },
-    {
-      "id": "sharepointFinanceAction",
-      "file": "plugins/sharepoint-finance-api.yaml",
-      "auth": {
-        "type": "OAuth2",
-        "referenceId": "entra-connection"
-      }
-    },
-    {
       "id": "sutradharaBackendAction",
-      "file": "plugins/sutradhara-backend-api.yaml",
-      "auth": {
-        "type": "OAuth2",
-        "referenceId": "entra-connection"
-      }
+      "file": "plugins/sutradhara-backend-api.yaml"
     }
   ]
 }

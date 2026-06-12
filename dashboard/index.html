@@ -36,57 +36,45 @@
 
   <!-- Main Grid Layout -->
   <main class="dashboard-grid">
-    
-    <!-- LEFT PANEL: Simulation & Scenarios Selection -->
-    <section class="panel panel-scenarios" aria-labelledby="scenarios-title">
-      <h2 id="scenarios-title" class="panel-header">🧪 Select Reasoning Scenario</h2>
-      <div class="panel-body">
-        <p class="section-desc">Select a scenario to load the student records and execute the agentic reasoning pipeline.</p>
-        <div class="scenarios-list">
-          <button class="scenario-item" data-scenario="1">
-            <span class="badge badge-success">Scenario 1</span>
-            <strong>Standard Reactivation</strong>
-            <p>100% tuition paid, zero holds. Full automatic reactivation.</p>
-          </button>
-          <button class="scenario-item" data-scenario="2">
-            <span class="badge badge-warning">Scenario 2</span>
-            <strong>Partial Payment Hold</strong>
-            <p>83% tuition paid. Restructure to Core Courses only [RIT-POL-001 §8].</p>
-          </button>
-          <button class="scenario-item" data-scenario="3">
-            <span class="badge badge-info">Scenario 3</span>
-            <strong>Expired Integrity Hold</strong>
-            <p>Tuition paid, hold expired. Reactivates and flags cleanup.</p>
-          </button>
-          <button class="scenario-item" data-scenario="4">
-            <span class="badge badge-danger">Scenario 4</span>
-            <strong>Active Disciplinary Block</strong>
-            <p>Tuition paid, active investigation hold. Blocked & escalated.</p>
-          </button>
-          <button class="scenario-item" data-scenario="5">
-            <span class="badge badge-primary">Scenario 5</span>
-            <strong>Hardship Emergency</strong>
-            <p>40% paid, hardship application filed. Grants 72hr access [RIT-POL-005].</p>
-          </button>
-          <button class="scenario-item" data-scenario="6">
-            <span class="badge badge-danger">Scenario 6</span>
-            <strong>Security Anomaly Alert</strong>
-            <p>Operator rate-limiting breach. Locks session [RIT-POL-004 §4].</p>
-          </button>
-        </div>
-      </div>
-    </section>
 
-    <!-- MIDDLE PANEL: Live Teams Copilot Chat Interface -->
+    <!-- LEFT PANEL: Live Teams Copilot Chat Interface -->
     <section class="panel panel-chat" aria-labelledby="chat-title">
       <h2 id="chat-title" class="panel-header">💬 RIT Teams Copilot Chat</h2>
       <div class="panel-body chat-container">
+        <!-- Agent Pipeline Flow Visualizer -->
+        <div class="agent-pipeline-flow" id="agent-pipeline-flow-container">
+          <div class="pipeline-node" id="node-identity">
+            <div class="node-icon">🪪</div>
+            <div class="node-label">Identity</div>
+          </div>
+          <div class="pipeline-connector" id="conn-1"></div>
+          <div class="pipeline-node" id="node-finance">
+            <div class="node-icon">💰</div>
+            <div class="node-label">Finance</div>
+          </div>
+          <div class="pipeline-connector" id="conn-2"></div>
+          <div class="pipeline-node" id="node-risk">
+            <div class="node-icon">🛡️</div>
+            <div class="node-label">Risk</div>
+          </div>
+          <div class="pipeline-connector" id="conn-3"></div>
+          <div class="pipeline-node" id="node-policy">
+            <div class="node-icon">📜</div>
+            <div class="node-label">Policy</div>
+          </div>
+          <div class="pipeline-connector" id="conn-4"></div>
+          <div class="pipeline-node" id="node-orchestrator">
+            <div class="node-icon">🧠</div>
+            <div class="node-label">Orchestrator</div>
+          </div>
+        </div>
+
         <div class="chat-history" id="chat-history-list">
           <!-- Initial Welcome Message -->
           <div class="chat-message agent">
             <div class="message-sender">Sutradhara Agent</div>
             <div class="message-content">
-              Hello! I am Sutradhara, the Redmond Institute of Technology Student Account Lifecycle Agent. Select a scenario on the left to begin simulating verification, policy retrieval, and Graph API updates.
+              Hello! I am Sutradhara, the Redmond Institute of Technology Student Account Lifecycle Agent. Select a scenario on the left or type your request below to run the live multi-agent reasoning pipeline.
             </div>
             <div class="message-timestamp">Just now</div>
           </div>
@@ -101,8 +89,8 @@
         </div>
 
         <div class="chat-input-area">
-          <input type="text" id="chat-input-field" placeholder="Select a scenario to start, or type student ID..." disabled>
-          <button id="send-chat-btn" class="fluent-btn-primary" disabled>Send</button>
+          <input type="text" id="chat-input-field" placeholder="Type message (e.g. Reactivate student S10001 using receipt REC-2026-1001)...">
+          <button id="send-chat-btn" class="fluent-btn-primary">Send</button>
         </div>
       </div>
     </section>
@@ -117,6 +105,7 @@
           <button class="tab-btn active" data-tab="db">🗄️ Student Records</button>
           <button class="tab-btn" data-tab="graph">⚡ Graph API Logs</button>
           <button class="tab-btn" data-tab="sharepoint">📊 SharePoint Audit</button>
+          <button class="tab-btn" data-tab="reasoning">🔍 Agent Reasoning</button>
         </div>
 
         <!-- TAB CONTENT 1: DB & Ledgers -->
@@ -168,6 +157,14 @@
                 <tr class="empty-row"><td colspan="5">No audit records generated.</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 4: Agent Reasoning Trace -->
+        <div class="tab-content" id="tab-reasoning">
+          <p class="section-desc">Trace showing the multi-agent chain-of-thought synthesis and compliance confidence score.</p>
+          <div class="reasoning-trace-container" id="agent-reasoning-trace-box">
+            <div class="placeholder-text">Select a scenario or send a request to analyze the multi-agent reasoning trace.</div>
           </div>
         </div>
 

@@ -94,26 +94,20 @@ Sutradhara is grounded in the following synthesized RIT regulations:
 │   │   ├── status-notification.json  # Student update Adaptive Card
 │   │   └── anomaly-alert.json        # Security alert Adaptive Card
 │   └── plugins/
-│       ├── graph-account-api.yaml    # OpenAPI spec for Microsoft Graph
-│       ├── sharepoint-finance-api.yaml # OpenAPI spec for SharePoint Lists
 │       └── sutradhara-backend-api.yaml # OpenAPI spec for Express backend
 ├── backend/                          # 🚀 Live Express backend
 │   ├── package.json                  # Node.js dependencies
-│   ├── .env.example                  # Environment variable template
-│   ├── graph-client.js               # Microsoft Graph SDK initialization
-│   ├── server.js                     # Express API server (4 routes + reasoning)
-│   ├── setup-sharepoint.js           # SharePoint list provisioning script
-│   └── seed-demo-data.js             # Demo student account + data seeder
+│   ├── .env.template                 # Environment variable template
+│   ├── agent-prompts.js              # System prompts for multi-agent pipeline
+│   ├── foundry-agents.js             # Live Azure AI Foundry Agent Pipeline
+│   ├── server.js                     # Express API server (MongoDB & Azure integration)
+│   └── setup-search-index.js         # Setup and seed Azure AI Search (Foundry IQ)
 ├── policies/                         # RIT Policy corpus for Foundry IQ
 │   ├── RIT-POL-001-Financial-Hold.md
 │   ├── RIT-POL-002-Reactivation-Procedure.md
 │   ├── RIT-POL-003-Academic-Integrity.md
 │   ├── RIT-POL-004-Audit-Compliance.md
 │   └── RIT-POL-005-Hardship-Equity.md
-├── sharepoint/                       # List structures and schemas
-│   ├── finance-ledger-schema.json
-│   ├── hold-registry-schema.json
-│   └── audit-log-schema.json
 ├── dashboard/                        # Interactive demo dashboard
 │   ├── index.html
 │   ├── index.css
@@ -127,83 +121,69 @@ Sutradhara is grounded in the following synthesized RIT regulations:
 
 ### Prerequisites
 - Node.js >= 18.0.0
-- Azure subscription (with App Service plan)
-- Microsoft 365 tenant with admin access
-- SharePoint site created
+- Azure subscription (with Azure OpenAI or Azure AI Foundry model deployment)
+- MongoDB Atlas cluster (optional, falls back to in-memory database)
+- SMTP Mail server credentials (optional, for sending real email notifications)
 
-### Step 1: Azure App Registration (Entra ID)
-1. Go to **Azure Portal** → **Microsoft Entra ID** → **App registrations** → **New registration**
-2. Name: `Sutradhara Backend`
-3. Supported account types: **Single tenant**
-4. After creating, note the **Application (client) ID** and **Directory (tenant) ID**
-5. Go to **Certificates & secrets** → **New client secret** → copy the secret value
-6. Go to **API permissions** → Add these **Application permissions**:
-   - `User.ReadWrite.All` (read/write user profiles, enable/disable accounts)
-   - `Sites.ReadWrite.All` (read/write SharePoint lists)
-   - `Mail.Send` (send notification emails)
-7. Click **Grant admin consent**
+### Step 1: Configure Backend Environment Variables
+1. Navigate to the `backend` directory:
+   ```bash
+   cd backend
+   ```
+2. Copy the environment configuration template:
+   ```bash
+   cp .env.template .env
+   ```
+3. Open `.env` and fill in your real credentials:
+   * **Azure AI Foundry:** Add `AZURE_AI_MODEL_ENDPOINT`, `AZURE_AI_MODEL_KEY`, and your deployment model name under `AZURE_AI_DEPLOYMENT_NAME` (e.g., `gpt-4o-mini`, `phi-4`).
+   * **MongoDB Atlas (Optional):** Add your Atlas connection string under `MONGODB_URI`. If left unconfigured, the app runs in-memory development mode.
+   * **SMTP Server (Optional):** Configure your email server hosts/ports and app passwords for real student email notifications.
+   * **Teams Bot credentials (Optional):** Fill in `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID` for registering a Teams App/Bot.
 
-### Step 2: Get SharePoint Site ID
-```powershell
-# After setting up .env with TENANT_ID, CLIENT_ID, CLIENT_SECRET:
-# Use Graph Explorer or this curl command:
-# GET https://graph.microsoft.com/v1.0/sites/{your-tenant}.sharepoint.com:/sites/{site-name}
-# Copy the "id" field → this is your SHAREPOINT_SITE_ID
-```
+### Step 2: (Optional) Index Policies in Azure AI Search (Foundry IQ)
+If you are using Azure AI Search for dynamic policy grounding (Foundry IQ grounding engine):
+1. Make sure your `.env` contains your search endpoint, keys, and target index name.
+2. Run the indexing helper script to automatically create/update the search index and upload the policy markdown documents:
+   ```bash
+   node setup-search-index.js
+   ```
 
-### Step 3: Configure Backend
-```bash
-cd backend
-cp .env.example .env
-# Edit .env with your real values:
-#   TENANT_ID=your-tenant-id
-#   CLIENT_ID=your-client-id
-#   CLIENT_SECRET=your-client-secret
-#   SHAREPOINT_SITE_ID=your-site-id
-#   TEAMS_WEBHOOK_URL=your-webhook-url (optional)
-#   DOMAIN=your-domain.onmicrosoft.com
-npm install
-```
+### Step 3: Install Dependencies and Start the Backend
+1. Install project dependencies:
+   ```bash
+   npm install
+   ```
+2. Start the Express API server:
+   ```bash
+   npm start # runs node server.js
+   ```
+   *For live reloading during development, you can run:*
+   ```bash
+   npm run dev
+   ```
+3. The server starts at `http://localhost:3000`. Upon startup, if a MongoDB connection is established, it will automatically check for and seed the 8 demo student profiles.
+4. Verify the server is running by hitting the health check endpoint:
+   ```bash
+   curl http://localhost:3000/api/health
+   ```
 
-### Step 4: Provision SharePoint Lists
-```bash
-npm run setup
-# Creates: FinanceLedger, HoldRegistry, AuditLog with all columns
-```
+### Step 4: Deploy to Azure App Service
+1. Deploy using Azure CLI:
+   ```bash
+   az webapp up --name sutradhara-backend --runtime "NODE:18-lts" --sku B1
+   ```
+2. Or configure a continuous integration workflow in the GitHub Repository deployment settings pointing at your Azure App Service.
 
-### Step 5: Create Demo Student Accounts
-```bash
-npm run seed
-# Creates 5 demo students in Entra ID + seeds finance/hold data
-```
+### Step 5: Teams App Package
+1. Zip the contents of the `agent/` folder (including `manifest.json`, `declarativeAgent.json`, `cards/`, and `plugins/`).
+2. Upload this zip file to **Teams Admin Center** -> **Manage apps** -> **Upload custom app** or install via VS Code Teams Toolkit.
 
-### Step 6: Start the Backend
-```bash
-npm start
-# Server starts at http://localhost:3000
-# Test: curl http://localhost:3000/api/health
-```
-
-### Step 7: Deploy to Azure App Service
-```bash
-# Option A: Azure CLI
-az webapp up --name sutradhara-backend --runtime "NODE:18-lts" --sku B1
-
-# Option B: GitHub Actions (push to main → auto-deploy)
-# Configure in Azure Portal → Deployment Center → GitHub
-```
-
-### Step 8: Teams App Package
-1. Zip the `agent/` folder contents (manifest.json, declarativeAgent.json, cards/, plugins/)
-2. Upload to **Teams Admin Center** → **Manage apps** → **Upload custom app**
-3. Or use **Teams Toolkit** in VS Code to deploy
-
-### Step 9: Copilot Studio Configuration
-1. Go to **Copilot Studio** → **Create** → **Declarative Agent**
-2. Import the `declarativeAgent.json`
-3. Configure the **Foundry IQ** knowledge base with the `/policies` folder
-4. Set the API plugin connection to point at your Azure backend URL
-5. Test in the Copilot Studio test pane
+### Step 6: Copilot Studio Configuration
+1. Go to **Copilot Studio** -> **Create** -> **Declarative Agent**.
+2. Import the `declarativeAgent.json` configuration.
+3. Configure the **Foundry IQ** knowledge base pointing it at the `/policies` folder (or a synced SharePoint document library containing the markdown files).
+4. Set the API plugin connection to point at your deployed Azure backend domain endpoint.
+5. Test the integration in the Copilot Studio test pane.
 
 ---
 
@@ -211,12 +191,15 @@ az webapp up --name sutradhara-backend --runtime "NODE:18-lts" --sku B1
 
 | Scenario | Student | Payment | Holds | Expected Decision | Policy |
 |----------|---------|---------|-------|-------------------|--------|
-| 1. Happy Path | Alice Vance (S12345) | 100% ($12K) | None | ✅ APPROVE FULL | RIT-POL-001 §6.3 |
-| 2. Partial Payment | Bob Carter (S12346) | 83% ($12.5K/$15K) | Financial (Active) | ⚠️ ESCALATE | RIT-POL-001 §7.2 |
-| 3. Expired Hold | Charlie Miller (S12347) | 100% ($10K) | AcademicIntegrity (Expired) | ✅ APPROVE FULL | RIT-POL-003 §4 |
-| 4. Active Investigation | Diana Prince (S12348) | 100% ($14K) | Investigation (Active) | ❌ DENY | RIT-POL-003 §3 |
-| 5. Hardship Case | Ethan Hunt (S12349) | 40% ($4.8K/$12K) | Financial (Active) | ❌ DENY | RIT-POL-001 §7.2 |
-| 6. Security Anomaly | — | — | — | 🚨 RATE LIMIT | RIT-POL-004 §4 |
+| 1. Happy Path | Aarav Sharma (S10001) | 100% (₹1.25L) | None | ✅ APPROVE FULL | RIT-POL-001 §6.3 |
+| 2. Partial Payment | Priya Nair (S10002) | 83.3% (₹1.25L/₹1.5L) | Financial (Active) | ⚠️ ESCALATE | RIT-POL-001 §7.2 |
+| 3. Expired Hold | Rohan Deshmukh (S10003) | 100% (₹1L) | AcademicIntegrity (Expired) | ✅ APPROVE FULL | RIT-POL-003 §4 |
+| 4. Active Investigation | Ananya Iyer (S10004) | 100% (₹1.4L) | Investigation (Active) | ❌ DENY | RIT-POL-003 §3 |
+| 5. Hardship Case | Karthik Reddy (S10005) | 40% (₹48K/₹1.2L) | Financial (Active) | ⚠️ ESCALATE (72h Access) | RIT-POL-005 §2 |
+| 6. Good Standing | Meera Joshi (S10006) | 100% (₹1.3L) | None | ✅ APPROVE FULL | RIT-POL-001 §6.3 |
+| 7. Partial Payment Limit | Arjun Patel (S10007) | 80% (₹88K/₹1.1L) | Financial (Active) | ⚠️ ESCALATE | RIT-POL-001 §7.2 |
+| 8. Unpaid Balance | Diya Krishnan (S10008) | 0% (₹0/₹1.35L) | Financial (Active) | ❌ DENY | RIT-POL-001 §6.3 |
+| 9. Security Anomaly | — | — | — | 🚨 RATE LIMIT | RIT-POL-004 §4 |
 
 ---
 
