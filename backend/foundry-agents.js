@@ -1,19 +1,46 @@
 /**
- * Sutradhara — Multi-Agent Reasoning Pipeline
+ * Sutradhara — Autonomous Reasoning Agent with Tools
  * 
- * Implements a 5-agent sequential pipeline using Azure AI Foundry:
- *   1. Identity Verifier Agent
- *   2. Financial Analyst Agent
- *   3. Risk Sentinel Agent
- *   4. Policy Compliance Agent (RAG-grounded)
- *   5. Orchestrator Agent (Final synthesis)
- *
- * NO simulation or hardcoded fallbacks. Requires a live Azure AI model endpoint.
+ * Implements a single reasoning agent using the official Azure AI Inference SDK
+ * and Function Calling (Tools) to fetch data, run policy compliance, and perform actions.
  */
 
-const fs = require('fs');
-const path = require('path');
-const prompts = require('./agent-prompts');
+const ModelClient = require("@azure-rest/ai-inference").default;
+const { isUnexpected } = require("@azure-rest/ai-inference");
+const { AzureKeyCredential } = require("@azure/core-auth");
+const { v4: uuidv4 } = require('uuid');
+
+// ---------------------------------------------------------------------------
+// Email Template Builder
+// ---------------------------------------------------------------------------
+function buildReactivationEmail(displayName, receiptNumber) {
+  return `
+    <div style="font-family: 'Segoe UI', sans-serif; padding: 24px; color: #1a1a1a; max-width: 600px; border: 1px solid #e0e0e0; border-radius: 12px; background: #fafafa;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h1 style="color: #1a73e8; font-size: 22px; margin: 0;">🎭 Sutradhara</h1>
+        <p style="color: #666; font-size: 12px; margin: 4px 0;">Student Account Lifecycle Agent</p>
+      </div>
+      <h2 style="color: #2e7d32; margin-top: 0;">Dear ${displayName},</h2>
+      <p>We are pleased to inform you that your <strong>RIT student account</strong> has been <strong style="color: #2e7d32;">successfully reactivated</strong>.</p>
+      <p>Our autonomous compliance system processed receipt <strong>${receiptNumber || 'N/A'}</strong>, verified your payment, audited active holds, and confirmed policy compliance.</p>
+      <div style="background: #e8f5e9; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #4caf50;">
+        <strong>Restored Access:</strong>
+        <ul style="margin: 8px 0 0 20px; padding: 0;">
+          <li>University Email (Outlook)</li>
+          <li>Learning Management System (Canvas LMS)</li>
+          <li>Campus Wi-Fi & Library Systems</li>
+          <li>Microsoft Teams</li>
+        </ul>
+      </div>
+      <p style="font-size: 0.9rem; color: #555;">Please allow 10–15 minutes for directory sync across all systems.</p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
+      <p style="font-size: 0.75rem; color: #999; text-align: center;">
+        This is an automated notification from Sutradhara Compliance Engine.<br>
+        Redmond Institute of Technology — Office of IT Administration
+      </p>
+    </div>
+  `;
+}
 
 // ---------------------------------------------------------------------------
 // Policy RAG Corpus Loader
@@ -36,7 +63,6 @@ async function fetchGroundingPolicies(query) {
   const index = process.env.AZURE_AI_SEARCH_INDEX || 'rit-policies-index';
 
   if (!endpoint || !key || endpoint.includes('<') || key.includes('<')) {
-    // Fallback: Use local file-based RAG
     return loadPolicies();
   }
 
@@ -73,10 +99,7 @@ async function fetchGroundingPolicies(query) {
     if (content.length > 300) {
       content = content.substring(0, 300) + "... (truncated)";
     }
-    const searchCorpus = `\n\n=== Policy Search Chunk: ${title} ===\n${content}\n`;
-
-    console.log(`    ✅ Retrieved 1 policy chunk from Azure AI Search (truncated).`);
-    return searchCorpus;
+    return `\n\n=== Policy Search Chunk: ${title} ===\n${content}\n`;
   } catch (err) {
     console.warn(`    ⚠️ Azure AI Search query failed (${err.message}). Falling back to local policies.`);
     return loadPolicies();
@@ -91,100 +114,24 @@ let clientReady = false;
 async function initAzureClient() {
   const endpoint = process.env.AZURE_AI_MODEL_ENDPOINT;
   const key = process.env.AZURE_AI_MODEL_KEY;
-  const deploymentName = process.env.AZURE_AI_DEPLOYMENT_NAME || 'gpt-4o-mini';
 
   if (!endpoint || !key || endpoint.includes('<') || key.includes('<')) {
-    throw new Error(
-      "AZURE_AI_MODEL_ENDPOINT and AZURE_AI_MODEL_KEY must be set in .env. " +
-      "Deploy a model in Azure AI Foundry and copy the endpoint + key."
-    );
+    throw new Error("AZURE_AI_MODEL_ENDPOINT and AZURE_AI_MODEL_KEY must be set in .env.");
   }
 
   clientReady = true;
-  console.log(`✅ Azure AI Inference client configured. Deployment: ${deploymentName}`);
+  console.log(`✅ Azure AI Inference client configured.`);
 }
 
 // ---------------------------------------------------------------------------
-// LLM Call Helper (Azure OpenAI Deployments API — with retry for rate limits)
-// ---------------------------------------------------------------------------
-const MAX_RETRIES = 6;
-const RETRY_DELAYS = [5000, 10000, 20000, 30000, 45000, 60000]; // backoff delays
-
-async function callAzureModel(systemPrompt, userPrompt) {
-  const endpoint = process.env.AZURE_AI_MODEL_ENDPOINT;
-  const key = process.env.AZURE_AI_MODEL_KEY;
-  const deploymentName = process.env.AZURE_AI_DEPLOYMENT_NAME || 'gpt-4o-mini';
-
-  if (!endpoint || !key || endpoint.includes('<') || key.includes('<')) {
-    throw new Error("Azure AI credentials not set or invalid in .env.");
-  }
-
-  // Build the Azure OpenAI deployment URL
-  const cleanBase = endpoint.replace(/\/+$/, "");
-  const apiVersion = '2025-01-01-preview';
-  const targetUrl = `${cleanBase}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": key
-        },
-        body: JSON.stringify({
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ],
-          temperature: 0.1,
-          max_tokens: 4000
-        })
-      });
-
-      // Handle rate limiting with retry
-      if (response.status === 429 && attempt < MAX_RETRIES) {
-        const retryAfter = parseInt(response.headers.get('retry-after') || '0') * 1000;
-        const delay = Math.max(retryAfter, RETRY_DELAYS[attempt]);
-        console.warn(`    ⏳ Rate limited (429). Retrying in ${delay / 1000}s... (attempt ${attempt + 1}/${MAX_RETRIES})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Azure AI model returned status ${response.status}: ${errText}`);
-      }
-
-      const resBody = await response.json();
-      if (resBody.choices && resBody.choices[0] && resBody.choices[0].message) {
-        return resBody.choices[0].message.content;
-      }
-      throw new Error(`Unexpected model response body: ${JSON.stringify(resBody)}`);
-    } catch (err) {
-      if (attempt < MAX_RETRIES && err.message.includes('429')) {
-        const delay = RETRY_DELAYS[attempt];
-        console.warn(`    ⏳ Rate limit error. Retrying in ${delay / 1000}s... (attempt ${attempt + 1}/${MAX_RETRIES})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      console.error("Direct Inference call failed:", err.message);
-      throw err;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// JSON Response Parser (handles Phi-4 <think> tags, markdown fences, regex)
+// JSON Response Parser
 // ---------------------------------------------------------------------------
 function parseAgentResponse(text, fallback, requiredKeys = []) {
   let parsed = null;
   try {
     let cleanText = text.trim();
-
     // Strip Phi-4-reasoning <think>...</think> blocks
     cleanText = cleanText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-
     // Strip markdown code fences
     if (cleanText.startsWith("```json")) {
       cleanText = cleanText.substring(7);
@@ -197,9 +144,7 @@ function parseAgentResponse(text, fallback, requiredKeys = []) {
     cleanText = cleanText.trim();
     parsed = JSON.parse(cleanText);
   } catch (err) {
-    // Strip think tags before regex extraction too
     const stripped = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    // Try to find the last complete JSON object (most likely the actual answer)
     const jsonMatches = stripped.match(/\{[\s\S]*?\}/g);
     if (jsonMatches) {
       for (let i = jsonMatches.length - 1; i >= 0; i--) {
@@ -208,20 +153,9 @@ function parseAgentResponse(text, fallback, requiredKeys = []) {
           break;
         } catch (e) { /* try next */ }
       }
-      if (!parsed) {
-        const greedyMatch = stripped.match(/\{[\s\S]*\}/);
-        if (greedyMatch) {
-          try {
-            parsed = JSON.parse(greedyMatch[0]);
-          } catch (e) {
-            console.error("Failed to parse regex-extracted JSON:", e.message);
-          }
-        }
-      }
     }
   }
 
-  // Check if we got a valid object and check required keys
   if (parsed && typeof parsed === 'object') {
     let hasAllKeys = true;
     for (const key of requiredKeys) {
@@ -232,184 +166,456 @@ function parseAgentResponse(text, fallback, requiredKeys = []) {
     }
     if (hasAllKeys) {
       return parsed;
-    } else {
-      console.warn(`⚠️ Parsed JSON is missing required keys: ${requiredKeys.join(', ')}. Merging with fallback.`);
-      return { ...fallback, ...parsed };
     }
   }
 
-  console.warn("⚠️ Agent returned unparseable response or non-object. Using structured fallback.");
+  console.warn("⚠️ Agent returned unparseable response. Using structured fallback.");
   return fallback;
 }
 
 // ---------------------------------------------------------------------------
-// Live Multi-Agent Pipeline (Azure AI Foundry)
+// Live Reasoning Agent with Tools
 // ---------------------------------------------------------------------------
-async function runLivePipeline(studentId, receiptNumber, requestedBy, db, rateLimited) {
+async function runAgentPipeline(studentId, receiptNumber, requestedBy, db, rateLimited) {
   console.log(`\n[Sutradhara AI] ══════════════════════════════════════════`);
-  console.log(`[Sutradhara AI] Running Live Multi-Agent Pipeline`);
-  console.log(`[Sutradhara AI] Student: ${studentId} | Receipt: ${receiptNumber || 'None'}`);
+  console.log(`[Sutradhara AI] Starting Autonomous Tool-Calling Agent`);
+  console.log(`[Sutradhara AI] Student ID: ${studentId} | Receipt: ${receiptNumber || 'None'}`);
   console.log(`[Sutradhara AI] ══════════════════════════════════════════\n`);
 
-  const profile = db.users[studentId];
-  const financeRecords = db.finance[studentId] || [];
-  const holds = db.holds[studentId] || [];
+  const baseEndpoint = process.env.AZURE_AI_MODEL_ENDPOINT.replace(/\/+$/, "");
+  const deploymentName = process.env.AZURE_AI_DEPLOYMENT_NAME || 'gpt-4o-mini';
+  const key = process.env.AZURE_AI_MODEL_KEY;
 
-  // ── Agent 1: Identity Verifier ──
-  console.log("  → Agent 1/5: Identity Verifier...");
-  const identityInput = `Verify Student ID: "${studentId}". Database profile records: ${JSON.stringify(profile || null)}.`;
-  const identityRaw = await callAzureModel(prompts.identityPrompt, identityInput);
-  const identityFindings = parseAgentResponse(identityRaw, {
-    status: profile ? "Verified" : "Not Found",
-    details: profile ? `Verified student ${profile.displayName}.` : `Student ID ${studentId} not found in directory.`,
-    confidence: 0.95,
-    data: profile || null
-  }, ["status", "details", "confidence"]);
-  console.log(`    ✓ Identity: ${identityFindings.status} (confidence: ${identityFindings.confidence})`);
-
-  if (identityFindings.status === "Not Found" || !profile) {
-    return {
-      success: false,
-      decision: "DENY",
-      confidence: 1.0,
-      summary: `Student ID ${studentId} does not exist in the university directory. Reactivation denied.`,
-      reasoningTrace: [
-        `Step 1 (Identity): Student ID ${studentId} was not found in the directory.`,
-        `Step 2 (Finance): Skipped — identity unverified.`,
-        `Step 3 (Risk): High risk — unverified identity.`,
-        `Step 4 (Policy): Non-compliant — RIT-POL-002 §2.1 requires identity verification.`,
-        `Step 5 (Synthesis): DENIED. Identity verification is mandatory.`
-      ],
-      citations: ["RIT-POL-002 §2.1: Identity verification required before service provisioning"],
-      agentDetails: {
-        identity: identityFindings,
-        finance: { status: "Skipped", details: "Skipped due to identity failure.", confidence: 1.0 },
-        risk: { riskLevel: "High", isRateLimited: false, blockingHoldsFound: false, details: "Unverified identity.", confidence: 1.0 },
-        policy: { isCompliant: false, applicablePolicies: [], verdictRecommendation: "DENY", details: "Identity check failed.", citations: [], confidence: 1.0 }
-      }
-    };
+  if (!baseEndpoint || !key || baseEndpoint.includes('<') || key.includes('<')) {
+    throw new Error("Azure AI credentials not set or invalid in .env.");
   }
 
-  // Pacing delay (3s) before Agent 2
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  const endpoint = `${baseEndpoint}/openai/deployments/${deploymentName}`;
+  const client = ModelClient(endpoint, new AzureKeyCredential(key));
 
-  // ── Agent 2: Financial Analyst ──
-  console.log("  → Agent 2/5: Financial Analyst...");
-  const financeInput = `Verify Student ID: "${studentId}". Submitted Receipt: "${receiptNumber || ""}". Ledger records: ${JSON.stringify(financeRecords)}.`;
-  const financeRaw = await callAzureModel(prompts.financialPrompt, financeInput);
-  const financeFindings = parseAgentResponse(financeRaw, {
-    status: financeRecords.length > 0 ? "Outstanding Balance" : "No Record",
-    percentagePaid: 0,
-    amountDue: 0,
-    amountPaid: 0,
-    receiptValid: false,
-    details: "Could not parse financial agent response.",
-    confidence: 0.80
-  }, ["status", "percentagePaid", "amountDue", "amountPaid", "receiptValid", "details", "confidence"]);
-  console.log(`    ✓ Finance: ${financeFindings.status} (${financeFindings.percentagePaid}% paid)`);
+  // 1. Instructions and Prompt
+  const systemPrompt = `You are Sutradhara, the autonomous Student Account Lifecycle Agent for Redmond Institute of Technology (RIT).
+Your role is to orchestrate student account reactivation requests following tuition payments.
 
-  // Pacing delay (3s) before Agent 3
-  await new Promise(resolve => setTimeout(resolve, 3000));
+You operate under a strict execution policy using your tools:
+1. Verify Student Identity: Call get_student_profile(studentId). If the student does not exist, call deny_reactivation_request(studentId, receiptNumber, "Student not found in directory", "RIT-POL-002") and output DENY.
+2. Verify Tuition Payment: Call get_student_finance(studentId) and analyze their payment history against their due balance. Match the receipt number from input.
+3. Check Active Registry Holds: Call get_student_holds(studentId) to retrieve holds.
+4. Check Policy Grounding: Call search_university_policies(query) to query university policies for rules matching the student's status.
+5. Make Decision & Execute:
+   - Standard Autonomous Path: If tuition is paid (100%), and no active holds are present, call reactivate_student_account(...) to enable the account, then call send_reactivation_email(...) to notify the student. Finally, output the decision "APPROVE".
+   - Expired Holds Path: If a hold exists but is expired, and tuition is fully paid, call reactivate_student_account(...) and send_reactivation_email(...). Output "APPROVE".
+   - Partial Payment / Hardship Escalation: If payment is partial (>= 80% but < 100%) or there's a hardship application but payment is < 80%, call escalate_reactivation_request(...) with the reason. Finally, output the decision "ESCALATE".
+   - Deny: If there's an active conduct/investigation hold, or if payment is < 80% with no hardship, call deny_reactivation_request(...). Finally, output the decision "DENY".
 
-  // ── Agent 3: Risk Sentinel ──
-  console.log("  → Agent 3/5: Risk Sentinel...");
-  const riskInput = `Evaluate security risks for Student ID: "${studentId}". Active holds: ${JSON.stringify(holds)}. Is Rate-limited: ${rateLimited}.`;
-  const riskRaw = await callAzureModel(prompts.riskPrompt, riskInput);
-  const riskFindings = parseAgentResponse(riskRaw, {
-    riskLevel: holds.some(h => h.HoldStatus === "Active") ? "Medium" : "Low",
-    isRateLimited: rateLimited,
-    blockingHoldsFound: holds.some(h => h.HoldStatus === "Active"),
-    details: "Could not parse risk agent response.",
-    confidence: 0.80
-  }, ["riskLevel", "isRateLimited", "blockingHoldsFound", "details", "confidence"]);
-  console.log(`    ✓ Risk: ${riskFindings.riskLevel} (blocking holds: ${riskFindings.blockingHoldsFound})`);
+You must call the relevant retrieval tools first, analyze the data, call the appropriate action tool (reactivate, escalate, or deny) and then return a final JSON output.
+Your final response MUST be a single valid JSON object. Do not include markdown code fences like \`\`\`json or \`\`\`.
 
-  // Pacing delay (3s) before Agent 4
-  await new Promise(resolve => setTimeout(resolve, 3000));
+Required JSON format:
+{
+  "decision": "APPROVE" | "DENY" | "ESCALATE",
+  "confidence": 0.0 to 1.0,
+  "summary": "Detailed summary explaining the decision and cited policies.",
+  "citations": ["RIT-POL-001 §6.3"],
+  "reasoningTrace": [
+    "Step 1 (Identity): ...",
+    "Step 2 (Finance): ...",
+    "Step 3 (Risk): ...",
+    "Step 4 (Policy): ...",
+    "Step 5 (Synthesis): ..."
+  ]
+}`;
 
-  // ── Agent 4: Policy Compliance (RAG-Grounded) ──
-  console.log("  → Agent 4/5: Policy Compliance (RAG)...");
-  const searchQuery = `${studentId} ${financeFindings.status} holds policy compliance`;
-  const policiesCorpus = await fetchGroundingPolicies(searchQuery);
-  const policySystemPrompt = `${prompts.policyPrompt}\n\nOfficial RIT Policy Corpus:\n${policiesCorpus}`;
-  const policyInput = `Evaluate compliance for ${studentId}:
-  - Identity: ${identityFindings.status} (${identityFindings.details})
-  - Finance: ${financeFindings.status}, paid ${financeFindings.percentagePaid}%, receipt ${financeFindings.receiptValid ? 'valid' : 'invalid'}
-  - Risk: ${riskFindings.riskLevel}, blocking holds: ${riskFindings.blockingHoldsFound}`;
+  const userPrompt = `Reactivate student account for Student ID: "${studentId}".
+Receipt Number provided by user: "${receiptNumber || 'None'}".
+Requested by operator: "${requestedBy}".
+Is operator rate-limited: ${rateLimited}.`;
 
-  const policyRaw = await callAzureModel(policySystemPrompt, policyInput);
-  const policyFindings = parseAgentResponse(policyRaw, {
-    isCompliant: false,
-    applicablePolicies: [],
-    verdictRecommendation: "ESCALATE",
-    details: "Could not parse policy agent response.",
-    citations: [],
-    confidence: 0.80
-  }, ["isCompliant", "applicablePolicies", "verdictRecommendation", "details", "citations", "confidence"]);
-  console.log(`    ✓ Policy: ${policyFindings.verdictRecommendation} (compliant: ${policyFindings.isCompliant})`);
+  // 2. Define tools
+  const tools = [
+    {
+      type: "function",
+      function: {
+        name: "get_student_profile",
+        description: "Get the student's directory profile to verify identity.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID, e.g. S10001" }
+          },
+          required: ["studentId"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_student_finance",
+        description: "Get the student's finance ledger and payment history.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID, e.g. S10001" }
+          },
+          required: ["studentId"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_student_holds",
+        description: "Get the list of active and expired registry holds for the student.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID, e.g. S10001" }
+          },
+          required: ["studentId"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "search_university_policies",
+        description: "Search official university policies (RIT-POL-001 through RIT-POL-005) for compliance rules.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Search query, e.g. 'financial hold' or 'partial payment'" }
+          },
+          required: ["query"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "reactivate_student_account",
+        description: "Reactivate the student's account in the database and write a successful audit log entry. Call this ONLY if compliance checks are fully satisfied.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID" },
+            receiptNumber: { type: "string", description: "The payment receipt number" },
+            citation: { type: "string", description: "The cited policy section authorizing this reactivation, e.g. RIT-POL-001 §6.3" }
+          },
+          required: ["studentId", "receiptNumber", "citation"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "escalate_reactivation_request",
+        description: "Escalate the reactivation request for human IT Lead review (e.g. for partial payment or financial hardship). Writes a pending audit log entry.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID" },
+            receiptNumber: { type: "string", description: "The payment receipt number" },
+            reason: { type: "string", description: "Detailed reason for escalation" },
+            citation: { type: "string", description: "The cited policy section, e.g. RIT-POL-001 §7.2" }
+          },
+          required: ["studentId", "receiptNumber", "reason", "citation"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "deny_reactivation_request",
+        description: "Deny the reactivation request due to active holds or policy violations. Writes a denied audit log entry.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID" },
+            receiptNumber: { type: "string", description: "The payment receipt number" },
+            reason: { type: "string", description: "Reason for denial" },
+            citation: { type: "string", description: "The cited policy section, e.g. RIT-POL-003 §3" }
+          },
+          required: ["studentId", "receiptNumber", "reason", "citation"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "send_reactivation_email",
+        description: "Send the reactivation confirmation email to the student.",
+        parameters: {
+          type: "object",
+          properties: {
+            studentId: { type: "string", description: "The student's ID" },
+            receiptNumber: { type: "string", description: "The payment receipt number" }
+          },
+          required: ["studentId", "receiptNumber"]
+        }
+      }
+    }
+  ];
 
-  // Pacing delay (3s) before Agent 5
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  // Tool outputs captured for frontend details
+  let identityFindings = null;
+  let financeFindings = null;
+  let holdsFindings = null;
+  let policyFindings = null;
 
-  // ── Agent 5: Orchestrator (Synthesis) ──
-  console.log("  → Agent 5/5: Orchestrator (Final Synthesis)...");
-  const orchestratorInput = `Request: Reactivate ${studentId} (receipt: ${receiptNumber}) by ${requestedBy}.
-  Findings:
-  - Identity: ${identityFindings.status} (${identityFindings.details})
-  - Finance: ${financeFindings.status}, paid ${financeFindings.percentagePaid}%, receipt ${financeFindings.receiptValid ? 'valid' : 'invalid'}
-  - Risk: ${riskFindings.riskLevel}, blocking holds: ${riskFindings.blockingHoldsFound} (${riskFindings.details})
-  - Policy: ${policyFindings.verdictRecommendation}, compliant: ${policyFindings.isCompliant} (${policyFindings.details})`;
+  // Local executors mapping
+  const toolExecutors = {
+    get_student_profile: async (args) => {
+      const sId = args.studentId;
+      console.log(`    [Tool Call] Fetching profile for ${sId}`);
+      if (db.getProfile) identityFindings = await db.getProfile(sId);
+      else identityFindings = db.users[sId] || null;
+      return identityFindings;
+    },
+    get_student_finance: async (args) => {
+      const sId = args.studentId;
+      console.log(`    [Tool Call] Fetching finance for ${sId}`);
+      if (db.getFinance) financeFindings = await db.getFinance(sId);
+      else financeFindings = db.finance[sId] || [];
+      return financeFindings;
+    },
+    get_student_holds: async (args) => {
+      const sId = args.studentId;
+      console.log(`    [Tool Call] Fetching holds for ${sId}`);
+      if (db.getHolds) holdsFindings = await db.getHolds(sId);
+      else holdsFindings = db.holds[sId] || [];
+      return holdsFindings;
+    },
+    search_university_policies: async (args) => {
+      console.log(`    [Tool Call] Searching policies: "${args.query}"`);
+      policyFindings = await fetchGroundingPolicies(args.query);
+      return policyFindings;
+    },
+    reactivate_student_account: async (args) => {
+      const sId = args.studentId;
+      const receipt = args.receiptNumber;
+      const citation = args.citation;
+      console.log(`    [Tool Call] Reactivating account for ${sId} via ${citation}`);
+      
+      if (db.reactivateAccount) {
+        await db.reactivateAccount(sId, true);
+      }
+      if (db.createAudit) {
+        await db.createAudit({
+          StudentID: sId,
+          RequestedBy: requestedBy,
+          ApprovedBy: 'Sutradhara-Auto',
+          Action: 'Reactivate',
+          PolicyCitation: citation,
+          ReasoningTrace: `Agent tool execution reactivate_student_account: verified payment and holds`,
+          ExecutionStatus: 'Executed',
+          ReceiptNumber: receipt || '',
+          TransactionId: uuidv4()
+        });
+      }
+      return { success: true, status: "Account Enabled" };
+    },
+    escalate_reactivation_request: async (args) => {
+      const sId = args.studentId;
+      const receipt = args.receiptNumber;
+      const reason = args.reason;
+      const citation = args.citation;
+      console.log(`    [Tool Call] Escalating reactivation for ${sId}: ${reason}`);
 
-  const orchestratorRaw = await callAzureModel(prompts.orchestratorPrompt, orchestratorInput);
-  const finalSynthesis = parseAgentResponse(orchestratorRaw, {
+      if (db.createAudit) {
+        await db.createAudit({
+          StudentID: sId,
+          RequestedBy: requestedBy,
+          ApprovedBy: '',
+          Action: 'Escalate',
+          PolicyCitation: citation,
+          ReasoningTrace: `Agent tool execution escalate_reactivation_request: ${reason}`,
+          ExecutionStatus: 'Pending',
+          ReceiptNumber: receipt || '',
+          TransactionId: uuidv4()
+        });
+      }
+      return { success: true, status: "Request Escalated" };
+    },
+    deny_reactivation_request: async (args) => {
+      const sId = args.studentId;
+      const receipt = args.receiptNumber;
+      const reason = args.reason;
+      const citation = args.citation;
+      console.log(`    [Tool Call] Denying reactivation for ${sId}: ${reason}`);
+
+      if (db.createAudit) {
+        await db.createAudit({
+          StudentID: sId,
+          RequestedBy: requestedBy,
+          ApprovedBy: '',
+          Action: 'Deny',
+          PolicyCitation: citation,
+          ReasoningTrace: `Agent tool execution deny_reactivation_request: ${reason}`,
+          ExecutionStatus: 'Denied',
+          ReceiptNumber: receipt || '',
+          TransactionId: uuidv4()
+        });
+      }
+      return { success: true, status: "Request Denied" };
+    },
+    send_reactivation_email: async (args) => {
+      const sId = args.studentId;
+      const receipt = args.receiptNumber;
+      console.log(`    [Tool Call] Sending reactivation email to student ${sId}`);
+
+      const profile = db.getProfile ? await db.getProfile(sId) : db.users[sId];
+      if (profile && profile.userPrincipalName && db.sendEmail) {
+        const html = buildReactivationEmail(profile.displayName, receipt);
+        const res = await db.sendEmail(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", html);
+        return res;
+      }
+      return { sent: false, reason: "Profile not found or sendEmail helper missing" };
+    }
+  };
+
+  // 3. Inference Run Loop
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt }
+  ];
+
+  let loopCount = 0;
+  const maxLoops = 10;
+  let rawTextResult = "";
+
+  while (loopCount < maxLoops) {
+    console.log(`  → [Agent Engine] Sending completion request (turn ${loopCount + 1})...`);
+    
+    // Call Azure Inference Client
+    const response = await client.path("/chat/completions").post({
+      queryParameters: {
+        "api-version": "2024-08-01-preview"
+      },
+      body: {
+        messages: messages,
+        tools: tools,
+        temperature: 0.1,
+        max_tokens: 1000
+      }
+    });
+
+    if (isUnexpected(response)) {
+      throw response.body.error;
+    }
+
+    const choice = response.body.choices[0];
+    const assistantMessage = choice.message;
+    messages.push(assistantMessage);
+
+    if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+      console.log(`  → [Agent Engine] LLM requested ${assistantMessage.tool_calls.length} tool call(s)`);
+      for (const toolCall of assistantMessage.tool_calls) {
+        const functionName = toolCall.function.name;
+        let functionArgs = {};
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          console.warn(`    ⚠️ Failed to parse tool arguments:`, toolCall.function.arguments);
+        }
+
+        let result;
+        if (toolExecutors[functionName]) {
+          try {
+            result = await toolExecutors[functionName](functionArgs);
+          } catch (e) {
+            console.error(`    ❌ Tool error executing ${functionName}:`, e.message);
+            result = { error: e.message };
+          }
+        } else {
+          result = { error: `Tool ${functionName} is not implemented` };
+        }
+
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result)
+        });
+      }
+      loopCount++;
+    } else {
+      rawTextResult = assistantMessage.content || "";
+      break;
+    }
+  }
+
+  // Parse structured decision response
+  const finalSynthesis = parseAgentResponse(rawTextResult, {
     decision: "ESCALATE",
     confidence: 0.85,
-    summary: "Orchestrator synthesis could not be parsed. Escalated to human review by default.",
-    citations: policyFindings.citations || [],
-    reasoningTrace: [
-      `Step 1 (Identity): ${identityFindings.details}`,
-      `Step 2 (Finance): ${financeFindings.details}`,
-      `Step 3 (Risk): ${riskFindings.details}`,
-      `Step 4 (Policy): ${policyFindings.details}`,
-      `Step 5 (Synthesis): Auto-escalated due to parsing failure.`
-    ]
+    summary: "Auto-escalated due to parsing error.",
+    citations: [],
+    reasoningTrace: ["Agent run finished but result was unparseable."]
   }, ["decision", "confidence", "summary", "citations", "reasoningTrace"]);
-  console.log(`    ✓ Orchestrator: ${finalSynthesis.decision} (confidence: ${finalSynthesis.confidence})`);
-  console.log(`[Sutradhara AI] Pipeline complete.\n`);
+
+  // Calculate percentages for agentDetails mapping
+  let financePercentage = 0;
+  if (financeFindings && financeFindings.length > 0) {
+    const record = financeFindings[0];
+    const due = record.AmountDue || record.amountDue || 120000;
+    const paid = record.AmountPaid || record.amountPaid || 0;
+    financePercentage = Number(((paid / due) * 100).toFixed(1));
+  } else if (db.finance && db.finance[studentId] && db.finance[studentId].length > 0) {
+    const record = db.finance[studentId][0];
+    financePercentage = Number(((record.AmountPaid / record.AmountDue) * 100).toFixed(1));
+  }
+
+  // Mapping risk evaluation details
+  let hasActiveHolds = false;
+  let riskLevel = "Low";
+  if (holdsFindings && holdsFindings.length > 0) {
+    hasActiveHolds = holdsFindings.some(h => h.HoldStatus === "Active");
+    const investigation = holdsFindings.some(h => h.HoldStatus === "Active" && h.HoldType === "Investigation");
+    const academic = holdsFindings.some(h => h.HoldStatus === "Active" && h.HoldType === "AcademicIntegrity");
+    if (investigation || academic) riskLevel = "High";
+    else if (hasActiveHolds) riskLevel = "Medium";
+  } else if (db.holds && db.holds[studentId]) {
+    hasActiveHolds = db.holds[studentId].some(h => h.HoldStatus === "Active");
+  }
+
+  const agentDetails = {
+    identity: {
+      status: identityFindings ? "Verified" : "Not Found",
+      details: identityFindings ? `Verified student ${identityFindings.displayName}.` : `Student ID not found in directory.`,
+      confidence: 0.95
+    },
+    finance: {
+      status: financePercentage >= 100 ? "Clear" : "Outstanding Balance",
+      percentagePaid: financePercentage,
+      amountDue: financeFindings && financeFindings.length > 0 ? (financeFindings[0].AmountDue || financeFindings[0].amountDue) : 120000,
+      amountPaid: financeFindings && financeFindings.length > 0 ? (financeFindings[0].AmountPaid || financeFindings[0].amountPaid) : 0,
+      receiptValid: true,
+      details: "Tuition fee ledger evaluated."
+    },
+    risk: {
+      riskLevel: riskLevel,
+      isRateLimited: rateLimited,
+      blockingHoldsFound: hasActiveHolds,
+      details: "Holds and transaction history checked."
+    },
+    policy: {
+      isCompliant: finalSynthesis.decision === 'APPROVE',
+      applicablePolicies: finalSynthesis.citations || [],
+      verdictRecommendation: finalSynthesis.decision,
+      details: finalSynthesis.summary
+    }
+  };
+
+  console.log(`[Sutradhara AI] Process Complete. Decision: ${finalSynthesis.decision}`);
 
   return {
     success: true,
-    decision: finalSynthesis.decision || "ESCALATE",
-    confidence: finalSynthesis.confidence || 0.85,
-    summary: finalSynthesis.summary || "Escalated by default.",
-    citations: finalSynthesis.citations || policyFindings.citations || [],
-    reasoningTrace: finalSynthesis.reasoningTrace || [
-      `Identity: ${identityFindings.details}`,
-      `Finance: ${financeFindings.details}`,
-      `Risk: ${riskFindings.details}`,
-      `Policy: ${policyFindings.details}`
-    ],
-    agentDetails: {
-      identity: identityFindings,
-      finance: financeFindings,
-      risk: riskFindings,
-      policy: policyFindings
-    }
+    decision: finalSynthesis.decision,
+    confidence: finalSynthesis.confidence,
+    summary: finalSynthesis.summary,
+    citations: finalSynthesis.citations,
+    reasoningTrace: finalSynthesis.reasoningTrace,
+    agentDetails: agentDetails
   };
-}
-
-// ---------------------------------------------------------------------------
-// Main Pipeline Interface
-// ---------------------------------------------------------------------------
-async function runAgentPipeline(studentId, receiptNumber, requestedBy, db, rateLimited) {
-  // Load policies into cache
-  loadPolicies();
-
-  // Initialize Azure client (throws if credentials missing)
-  await initAzureClient();
-
-  // Run the live multi-agent pipeline
-  return await runLivePipeline(studentId, receiptNumber, requestedBy, db, rateLimited);
 }
 
 module.exports = {

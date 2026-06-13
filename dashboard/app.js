@@ -1014,3 +1014,157 @@ window.addEventListener("load", () => {
     toggleBtn.addEventListener("click", toggleLiveMode);
   }
 });
+
+// ─── Demo Payment Section Handlers ──────────────────────────────────────────
+window.onPaymentStudentChange = async function() {
+  const studentId = document.getElementById("payment-student-id").value;
+  const hintEl = document.getElementById("payment-balance-hint");
+  const amountInput = document.getElementById("payment-amount");
+  
+  if (!studentId) {
+    hintEl.textContent = "";
+    amountInput.value = "";
+    return;
+  }
+
+  try {
+    let due = 120000;
+    let paid = 0;
+
+    if (LIVE_MODE) {
+      logGraphRequest("GET", `/api/student/${studentId}`);
+      const data = await apiCall("GET", `/api/student/${studentId}`);
+      logGraphResponse(200, data);
+      if (data.finance && data.finance.length > 0) {
+        due = data.finance[0].AmountDue || 120000;
+        paid = data.finance[0].AmountPaid || 0;
+      }
+    } else {
+      const student = studentDatabase[studentId];
+      if (student) {
+        due = student.finance.due;
+        paid = student.finance.paid;
+      }
+    }
+
+    const balance = due - paid;
+    hintEl.innerHTML = `Total Tuition Due: <strong>₹${due.toLocaleString()}</strong> | Already Paid: <strong>₹${paid.toLocaleString()}</strong><br>Remaining Balance: <strong>₹${balance.toLocaleString()}</strong>`;
+    amountInput.value = balance > 0 ? balance : "";
+  } catch (err) {
+    console.error("Failed to load student payment info:", err);
+    hintEl.textContent = "Error loading student balance.";
+  }
+};
+
+window.handlePaymentSubmit = async function(event) {
+  event.preventDefault();
+  const studentId = document.getElementById("payment-student-id").value;
+  const amountPaid = Number(document.getElementById("payment-amount").value);
+  const paymentMethod = document.getElementById("payment-method").value;
+  const statusEl = document.getElementById("payment-status-message");
+
+  if (!studentId || !amountPaid || !paymentMethod) {
+    alert("Please fill in all fields.");
+    return;
+  }
+
+  statusEl.style.display = "block";
+  statusEl.style.backgroundColor = "rgba(255, 255, 255, 0.05)";
+  statusEl.style.color = "var(--text-color)";
+  statusEl.textContent = "Processing payment...";
+
+  try {
+    if (LIVE_MODE) {
+      logGraphRequest("POST", `/api/payment`, { studentId, amountPaid, paymentMethod });
+      const response = await apiCall("POST", `/api/payment`, { studentId, amountPaid, paymentMethod });
+      logGraphResponse(200, response);
+
+      statusEl.style.backgroundColor = "var(--color-success-bg)";
+      statusEl.style.color = "var(--color-success)";
+      statusEl.innerHTML = `✅ Payment Cleared!<br>Receipt Reference: <strong>${response.receiptNumber}</strong><br>Holds registry and finance ledgers updated in DB.`;
+
+      // Fetch student data and update enterprise UI
+      logGraphRequest("GET", `/api/student/${studentId}`);
+      const data = await apiCall("GET", `/api/student/${studentId}`);
+      logGraphResponse(200, data);
+
+      const liveStudent = {
+        profile: {
+          id: studentId,
+          name: data.profile.displayName,
+          email: data.profile.userPrincipalName,
+          dept: data.profile.department || 'N/A',
+          active: data.profile.accountEnabled
+        },
+        finance: data.finance && data.finance.length > 0 ? {
+          due: data.finance[0].AmountDue || 0,
+          paid: data.finance[0].AmountPaid || 0,
+          percentage: data.finance[0].AmountDue > 0 ? ((data.finance[0].AmountPaid / data.finance[0].AmountDue) * 100) : 0,
+          receipt: data.finance[0].ReceiptNumber || 'N/A',
+          status: data.finance[0].VerificationStatus || 'Unknown'
+        } : { due: 0, paid: 0, percentage: 0, receipt: 'N/A', status: 'No Record' },
+        holds: (data.holds || []).map(h => ({
+          id: h.id || 'N/A',
+          type: h.HoldType,
+          status: h.HoldStatus,
+          placed: h.PlacedDate ? h.PlacedDate.substring(0, 10) : 'N/A',
+          expiry: h.ExpiryDate ? h.ExpiryDate.substring(0, 10) : null,
+          placedBy: h.PlacedBy || 'System',
+          reason: h.Reason || ''
+        }))
+      };
+      studentDatabase[studentId] = liveStudent;
+      updateEnterpriseUI(studentId);
+      
+      // Post notice in chat
+      addChatMessage("System Office", `Tuition payment of ₹${amountPaid.toLocaleString()} processed for ${studentId} via ${paymentMethod}. Generated receipt: ${response.receiptNumber}`, "user");
+      
+    } else {
+      // Simulate payment update
+      const student = studentDatabase[studentId];
+      if (student) {
+        const receiptNumber = `REC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+        student.finance.paid = amountPaid;
+        student.finance.percentage = (amountPaid / student.finance.due) * 100;
+        student.finance.receipt = receiptNumber;
+        student.finance.date = new Date().toISOString().split('T')[0];
+        student.finance.status = "Verified";
+
+        const outstanding = student.finance.due - amountPaid;
+        if (outstanding <= 50000) {
+          student.holds = student.holds.filter(h => h.type !== 'Financial');
+        } else {
+          const holds = student.holds || [];
+          const finHoldIdx = holds.findIndex(h => h.type === 'Financial');
+          const holdData = {
+            id: "H-" + Math.floor(Math.random()*1000),
+            type: "Financial",
+            status: "Active",
+            placed: new Date().toISOString().split('T')[0],
+            expiry: null,
+            placedBy: "Office of Accounts",
+            reason: `Tuition balance outstanding: ₹${outstanding.toLocaleString()}`
+          };
+          if (finHoldIdx >= 0) holds[finHoldIdx] = holdData;
+          else holds.push(holdData);
+          student.holds = holds;
+        }
+
+        updateEnterpriseUI(studentId);
+        
+        statusEl.style.backgroundColor = "var(--color-success-bg)";
+        statusEl.style.color = "var(--color-success)";
+        statusEl.innerHTML = `✅ Payment Cleared (SIM)!<br>Receipt Reference: <strong>${receiptNumber}</strong><br>Holds registry and finance ledgers updated.`;
+        
+        addChatMessage("System Office", `Tuition payment of ₹${amountPaid.toLocaleString()} processed for ${studentId} via ${paymentMethod}. Generated receipt: ${receiptNumber}`, "user");
+      }
+    }
+    
+    // Refresh balance hint
+    onPaymentStudentChange();
+  } catch (err) {
+    statusEl.style.backgroundColor = "var(--color-danger-bg)";
+    statusEl.style.color = "var(--color-danger)";
+    statusEl.textContent = `❌ Payment failed: ${err.message}`;
+  }
+};

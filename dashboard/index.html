@@ -22,6 +22,7 @@
       <div class="logo-text">
         <h1>Sutradhara Portal</h1>
         <p>Redmond Institute of Technology • Student Account Lifecycle System</p>
+        <p style="margin-top:4px;font-size:0.7rem;letter-spacing:0.06em;color:#8ab4f8;font-weight:600;">FOUNDRY IQ TRACK &bull; FOUNDRY POWERED</p>
       </div>
     </div>
     <div class="header-actions">
@@ -106,6 +107,7 @@
           <button class="tab-btn" data-tab="graph">⚡ Graph API Logs</button>
           <button class="tab-btn" data-tab="sharepoint">📊 SharePoint Audit</button>
           <button class="tab-btn" data-tab="reasoning">🔍 Agent Reasoning</button>
+          <button class="tab-btn" data-tab="payment">💳 Make Payment</button>
         </div>
 
         <!-- TAB CONTENT 1: DB & Ledgers -->
@@ -165,6 +167,47 @@
           <p class="section-desc">Trace showing the multi-agent chain-of-thought synthesis and compliance confidence score.</p>
           <div class="reasoning-trace-container" id="agent-reasoning-trace-box">
             <div class="placeholder-text">Select a scenario or send a request to analyze the multi-agent reasoning trace.</div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 5: Demo Payment Form -->
+        <div class="tab-content" id="tab-payment">
+          <p class="section-desc">Generate a tuition payment, update MongoDB, and clear/update financial holds autonomously.</p>
+          <div class="profile-card">
+            <form id="payment-form" onsubmit="handlePaymentSubmit(event)" style="display: flex; flex-direction: column; gap: 16px; max-width: 450px; margin: 0 auto; padding: 10px;">
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label for="payment-student-id" style="font-weight: 600; font-size: 0.9rem; color: var(--text-color);">Select Student</label>
+                <select id="payment-student-id" required onchange="onPaymentStudentChange()" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--card-bg); color: var(--text-color); outline: none;">
+                  <option value="">-- Choose a student --</option>
+                  <option value="S10001">S10001 - Aarav Sharma</option>
+                  <option value="S10002">S10002 - Priya Nair</option>
+                  <option value="S10003">S10003 - Rohan Deshmukh</option>
+                  <option value="S10004">S10004 - Ananya Iyer</option>
+                  <option value="S10005">S10005 - Karthik Reddy</option>
+                  <option value="S10006">S10006 - Meera Joshi</option>
+                  <option value="S10007">S10007 - Arjun Patel</option>
+                  <option value="S10008">S10008 - Diya Krishnan</option>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label for="payment-amount" style="font-weight: 600; font-size: 0.9rem; color: var(--text-color);">Amount to Pay (INR ₹)</label>
+                <input type="number" id="payment-amount" placeholder="e.g. 120000" required min="1" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--card-bg); color: var(--text-color); outline: none;">
+                <small id="payment-balance-hint" style="color: var(--text-muted); font-size: 0.8rem;"></small>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <label for="payment-method" style="font-weight: 600; font-size: 0.9rem; color: var(--text-color);">Payment Method</label>
+                <select id="payment-method" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--card-bg); color: var(--text-color); outline: none;">
+                  <option value="UPI">UPI (Immediate)</option>
+                  <option value="NEFT">NEFT (Bank Transfer)</option>
+                  <option value="RTGS">RTGS (Large Value)</option>
+                  <option value="Net Banking">Net Banking</option>
+                  <option value="Scholarship">Scholarship</option>
+                  <option value="Financial Aid">Financial Aid</option>
+                </select>
+              </div>
+              <button type="submit" class="fluent-btn-primary" style="padding: 12px; font-weight: 600; margin-top: 10px;">Submit Tuition Payment</button>
+            </form>
+            <div id="payment-status-message" style="margin-top: 16px; padding: 12px; border-radius: 6px; display: none; text-align: center; font-weight: 500;"></div>
           </div>
         </div>
 

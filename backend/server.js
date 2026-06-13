@@ -321,17 +321,108 @@ app.get('/api/audit', async (req, res) => {
   res.json(logs);
 });
 
+// Process tuition payment (Demo Payment)
+app.post('/api/payment', async (req, res) => {
+  const { studentId, amountPaid, paymentMethod } = req.body;
+  console.log(`[POST /api/payment] student=${studentId} amount=${amountPaid} method=${paymentMethod}`);
+
+  if (!studentId || amountPaid === undefined || !paymentMethod) {
+    return res.status(400).json({ error: 'studentId, amountPaid, and paymentMethod are required' });
+  }
+
+  try {
+    const profile = await getStudentProfile(studentId);
+    if (!profile) {
+      return res.status(404).json({ error: 'Student not found in directory' });
+    }
+
+    // Default tuition fee due if not found in existing records
+    let amountDue = 120000;
+    const financeRecords = await getStudentFinance(studentId);
+    if (financeRecords && financeRecords.length > 0) {
+      amountDue = financeRecords[0].AmountDue || financeRecords[0].amountDue || amountDue;
+    }
+
+    const receiptNumber = `REC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const paymentRecord = {
+      StudentID: studentId,
+      AmountDue: amountDue,
+      AmountPaid: Number(amountPaid),
+      ReceiptNumber: receiptNumber,
+      PaymentDate: new Date().toISOString().split('T')[0],
+      PaymentMethod: paymentMethod,
+      VerificationStatus: 'Verified',
+      Notes: `Demo payment of ₹${Number(amountPaid).toLocaleString()} generated via portal.`
+    };
+
+    if (db) {
+      // Delete old records for this student and insert the new one
+      await db.collection('finance').deleteMany({ StudentID: studentId });
+      await db.collection('finance').insertOne(paymentRecord);
+
+      // Auto-clear or adjust financial holds based on RIT-POL-001
+      // If outstanding balance is <= ₹50,000 (local scale), clear it
+      const outstanding = amountDue - Number(amountPaid);
+      if (outstanding <= 50000) {
+        await db.collection('holds').deleteMany({ StudentID: studentId, HoldType: 'Financial' });
+      } else {
+        await db.collection('holds').updateOne(
+          { StudentID: studentId, HoldType: 'Financial' },
+          {
+            $set: {
+              HoldStatus: 'Active',
+              PlacedDate: new Date().toISOString().split('T')[0],
+              Reason: `Tuition balance outstanding: ₹${outstanding.toLocaleString()}`
+            }
+          },
+          { upsert: true }
+        );
+      }
+    } else {
+      // In-memory database fallback update
+      fallbackDatabase.finance[studentId] = [paymentRecord];
+      const outstanding = amountDue - Number(amountPaid);
+      if (outstanding <= 50000) {
+        fallbackDatabase.holds[studentId] = (fallbackDatabase.holds[studentId] || []).filter(h => h.HoldType !== 'Financial');
+      } else {
+        const holds = fallbackDatabase.holds[studentId] || [];
+        const finHoldIdx = holds.findIndex(h => h.HoldType === 'Financial');
+        const holdData = {
+          StudentID: studentId,
+          HoldType: 'Financial',
+          HoldStatus: 'Active',
+          PlacedDate: new Date().toISOString().split('T')[0],
+          PlacedBy: 'Office of Accounts',
+          Reason: `Tuition balance outstanding: ₹${outstanding.toLocaleString()}`
+        };
+        if (finHoldIdx >= 0) {
+          holds[finHoldIdx] = holdData;
+        } else {
+          holds.push(holdData);
+        }
+        fallbackDatabase.holds[studentId] = holds;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Payment registered in database.`,
+      receiptNumber,
+      paymentRecord
+    });
+  } catch (err) {
+    console.error("Payment API error:", err);
+    return res.status(500).json({ error: 'Payment processing failed', details: err.message });
+  }
+});
+
 // Agent Status
 app.get('/api/agents/status', (req, res) => {
   res.json({
     status: 'active',
     mode: isLive() ? 'Azure AI Foundry (Live)' : 'Awaiting Credentials',
     agents: [
-      { name: 'Orchestrator Agent', role: 'Synthesis & Routing' },
-      { name: 'Identity Verifier Agent', role: 'Directory Verification' },
-      { name: 'Financial Analyst Agent', role: 'Ledger Audit' },
-      { name: 'Risk Sentinel Agent', role: 'Hold & Rate Limit Analysis' },
-      { name: 'Policy Compliance Agent', role: 'RAG Policy Evaluation' }
+      { name: 'Sutradhara Reasoning Agent', role: 'Full Decision & Execution with Tools' }
     ]
   });
 });
@@ -360,38 +451,18 @@ app.post('/api/reactivate', async (req, res) => {
     const dbWrapper = {
       users: { [studentId]: profile },
       finance: { [studentId]: financeRecords },
-      holds: { [studentId]: holds }
+      holds: { [studentId]: holds },
+      getProfile: async (id) => await getStudentProfile(id),
+      getFinance: async (id) => await getStudentFinance(id),
+      getHolds: async (id) => await getStudentHolds(id),
+      reactivateAccount: async (id, enabled) => await updateStudentAccountStatus(id, enabled),
+      createAudit: async (fields) => await createAuditEntry(fields),
+      sendEmail: async (to, subject, html) => await sendEmailNotification(to, subject, html)
     };
 
     const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
     const { decision, confidence, summary, citations, reasoningTrace, agentDetails } = result;
     const reasoningText = reasoningTrace.join(' | ');
-
-    // Execute decision
-    if (decision === 'APPROVE') {
-      await updateStudentAccountStatus(studentId, true);
-      await createAuditEntry({
-        StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: 'Sutradhara-Auto',
-        Action: 'Reactivate', PolicyCitation: citations[0] || 'RIT-POL-001',
-        ReasoningTrace: reasoningText, ExecutionStatus: 'Executed',
-        ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-      });
-      await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, receiptNumber));
-    } else if (decision === 'DENY') {
-      await createAuditEntry({
-        StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
-        Action: 'Deny', PolicyCitation: citations[0] || 'RIT-POL-001',
-        ReasoningTrace: reasoningText, ExecutionStatus: 'Denied',
-        ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-      });
-    } else {
-      await createAuditEntry({
-        StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
-        Action: 'Escalate', PolicyCitation: citations[0] || 'RIT-POL-001',
-        ReasoningTrace: reasoningText, ExecutionStatus: 'Pending',
-        ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-      });
-    }
 
     return res.json({
       status: decision.toLowerCase(),
@@ -445,37 +516,17 @@ app.post('/api/chat', async (req, res) => {
       const dbWrapper = {
         users: { [studentId]: profile },
         finance: { [studentId]: financeRecords },
-        holds: { [studentId]: holds }
+        holds: { [studentId]: holds },
+        getProfile: async (id) => await getStudentProfile(id),
+        getFinance: async (id) => await getStudentFinance(id),
+        getHolds: async (id) => await getStudentHolds(id),
+        reactivateAccount: async (id, enabled) => await updateStudentAccountStatus(id, enabled),
+        createAudit: async (fields) => await createAuditEntry(fields),
+        sendEmail: async (to, subject, html) => await sendEmailNotification(to, subject, html)
       };
 
       const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
       const { decision, confidence, summary, citations, reasoningTrace, agentDetails } = result;
-
-      // Execute decisions
-      if (decision === 'APPROVE') {
-        await updateStudentAccountStatus(studentId, true);
-        await createAuditEntry({
-          StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: 'Sutradhara-Auto',
-          Action: 'Reactivate', PolicyCitation: citations[0] || 'RIT-POL-001',
-          ReasoningTrace: reasoningTrace.join(' | '), ExecutionStatus: 'Executed',
-          ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-        });
-        await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, receiptNumber));
-      } else if (decision === 'DENY') {
-        await createAuditEntry({
-          StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
-          Action: 'Deny', PolicyCitation: citations[0] || 'RIT-POL-001',
-          ReasoningTrace: reasoningTrace.join(' | '), ExecutionStatus: 'Denied',
-          ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-        });
-      } else {
-        await createAuditEntry({
-          StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: '',
-          Action: 'Escalate', PolicyCitation: citations[0] || 'RIT-POL-001',
-          ReasoningTrace: reasoningTrace.join(' | '), ExecutionStatus: 'Pending',
-          ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-        });
-      }
 
       return res.json({
         type: 'pipeline',
@@ -583,21 +634,16 @@ app.post('/api/messages', async (req, res) => {
           const dbWrapper = {
             users: { [studentId]: profile },
             finance: { [studentId]: financeRecords },
-            holds: { [studentId]: holds }
+            holds: { [studentId]: holds },
+            getProfile: async (id) => await getStudentProfile(id),
+            getFinance: async (id) => await getStudentFinance(id),
+            getHolds: async (id) => await getStudentHolds(id),
+            reactivateAccount: async (id, enabled) => await updateStudentAccountStatus(id, enabled),
+            createAudit: async (fields) => await createAuditEntry(fields),
+            sendEmail: async (to, subject, html) => await sendEmailNotification(to, subject, html)
           };
 
           const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
-
-          if (result.decision === 'APPROVE') {
-            await updateStudentAccountStatus(studentId, true);
-            await createAuditEntry({
-              StudentID: studentId, RequestedBy: requestedBy, ApprovedBy: 'Sutradhara-Auto',
-              Action: 'Reactivate', PolicyCitation: result.citations[0] || 'RIT-POL-001',
-              ReasoningTrace: result.reasoningTrace.join(' | '), ExecutionStatus: 'Executed',
-              ReceiptNumber: receiptNumber || '', TransactionId: transactionId
-            });
-            await sendEmailNotification(profile.userPrincipalName, "RIT Student Access Restored — Sutradhara", buildReactivationEmail(profile.displayName, receiptNumber));
-          }
 
           await context.sendActivity(
             `### 📊 Verdict: **${result.decision}**\n\n` +
