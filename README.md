@@ -1,10 +1,23 @@
+<div align="center">
+
 # Sutradhara
 
 **Autonomous Student Account Lifecycle Agent**
 
-> Microsoft Agent League Hackathon 2026 | Foundry IQ Track | Reasoning Agent Category
->
-> Built with Microsoft Foundry, Azure AI Inference SDK, and the Microsoft 365 Copilot Platform
+[![Hackathon](https://img.shields.io/badge/Microsoft_Agent_League-Hackathon_2026-0078D4?style=for-the-badge&logo=microsoft&logoColor=white)](https://github.com/Ganesh2006646/Agent-League-Hackathon---microsoft)
+[![Track](https://img.shields.io/badge/Track-Foundry_IQ-6C2DC7?style=for-the-badge&logo=azure-devops&logoColor=white)](#)
+[![Category](https://img.shields.io/badge/Category-Reasoning_Agent-E8710A?style=for-the-badge&logo=openai&logoColor=white)](#)
+
+[![Azure AI](https://img.shields.io/badge/Azure_AI_Inference-SDK-0089D6?style=flat-square&logo=microsoftazure&logoColor=white)](#technology-stack)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#technology-stack)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](#technology-stack)
+[![Microsoft Graph](https://img.shields.io/badge/Microsoft_Graph-API-0078D4?style=flat-square&logo=microsoft&logoColor=white)](#technology-stack)
+[![Teams](https://img.shields.io/badge/Microsoft_Teams-Adaptive_Cards-6264A7?style=flat-square&logo=microsoftteams&logoColor=white)](#technology-stack)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](#license)
+
+Built with Microsoft Foundry, Azure AI Inference SDK, and the Microsoft 365 Copilot Platform
+
+</div>
 
 ---
 
