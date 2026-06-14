@@ -338,16 +338,20 @@ app.post('/api/payment', async (req, res) => {
 
     // Default tuition fee due if not found in existing records
     let amountDue = 120000;
+    let previousPaid = 0;
     const financeRecords = await getStudentFinance(studentId);
     if (financeRecords && financeRecords.length > 0) {
       amountDue = financeRecords[0].AmountDue || financeRecords[0].amountDue || amountDue;
+      previousPaid = financeRecords[0].AmountPaid || financeRecords[0].amountPaid || 0;
     }
+
+    const totalPaid = previousPaid + Number(amountPaid);
 
     const receiptNumber = `REC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     const paymentRecord = {
       StudentID: studentId,
       AmountDue: amountDue,
-      AmountPaid: Number(amountPaid),
+      AmountPaid: totalPaid,
       ReceiptNumber: receiptNumber,
       PaymentDate: new Date().toISOString().split('T')[0],
       PaymentMethod: paymentMethod,
@@ -362,7 +366,7 @@ app.post('/api/payment', async (req, res) => {
 
       // Auto-clear or adjust financial holds based on RIT-POL-001
       // If outstanding balance is <= ₹50,000 (local scale), clear it
-      const outstanding = amountDue - Number(amountPaid);
+      const outstanding = amountDue - totalPaid;
       if (outstanding <= 50000) {
         await db.collection('holds').deleteMany({ StudentID: studentId, HoldType: 'Financial' });
       } else {
@@ -381,7 +385,7 @@ app.post('/api/payment', async (req, res) => {
     } else {
       // In-memory database fallback update
       fallbackDatabase.finance[studentId] = [paymentRecord];
-      const outstanding = amountDue - Number(amountPaid);
+      const outstanding = amountDue - totalPaid;
       if (outstanding <= 50000) {
         fallbackDatabase.holds[studentId] = (fallbackDatabase.holds[studentId] || []).filter(h => h.HoldType !== 'Financial');
       } else {
@@ -600,6 +604,51 @@ app.post('/api/chat', async (req, res) => {
 
       const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
       const { decision, confidence, summary, citations, reasoningTrace, agentDetails, pipelineMetrics, agentConsensus, selfReflection } = result;
+
+      // Execute DB writes based on the decision
+      if (decision === 'APPROVE') {
+        await updateStudentAccountStatus(studentId, true);
+        await createAuditEntry({
+          StudentID: studentId,
+          RequestedBy: requestedBy,
+          ApprovedBy: 'Sutradhara-Auto',
+          Action: 'Reactivate',
+          PolicyCitation: citations[0] || 'RIT-POL-001',
+          ReasoningTrace: reasoningTrace.join(' | '),
+          ExecutionStatus: 'Executed',
+          ReceiptNumber: receiptNumber,
+          TransactionId: transactionId
+        });
+        await sendEmailNotification(
+          profile.userPrincipalName,
+          "RIT Student Access Restored — Sutradhara",
+          buildReactivationEmail(profile.displayName, receiptNumber)
+        );
+      } else if (decision === 'ESCALATE') {
+        await createAuditEntry({
+          StudentID: studentId,
+          RequestedBy: requestedBy,
+          ApprovedBy: 'Pending IT Lead',
+          Action: 'Escalate',
+          PolicyCitation: citations[0] || 'RIT-POL-001',
+          ReasoningTrace: reasoningTrace.join(' | '),
+          ExecutionStatus: 'Pending',
+          ReceiptNumber: receiptNumber,
+          TransactionId: transactionId
+        });
+      } else if (decision === 'DENY') {
+        await createAuditEntry({
+          StudentID: studentId,
+          RequestedBy: requestedBy,
+          ApprovedBy: 'Sutradhara-Auto',
+          Action: 'Deny',
+          PolicyCitation: citations[0] || 'RIT-POL-001',
+          ReasoningTrace: reasoningTrace.join(' | '),
+          ExecutionStatus: 'Executed',
+          ReceiptNumber: receiptNumber,
+          TransactionId: transactionId
+        });
+      }
 
       return res.json({
         type: 'pipeline',
