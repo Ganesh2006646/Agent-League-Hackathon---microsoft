@@ -6,6 +6,7 @@ const { MongoClient } = require('mongodb');
 const nodemailer = require('nodemailer');
 const { CloudAdapter, ConfigurationBotFrameworkAuthentication } = require('botbuilder');
 const { runAgentPipeline, isLive, initAzureClient } = require('./foundry-agents');
+const { sanitizeInput } = require('./responsible-ai');
 
 const app = express();
 app.use(cors());
@@ -298,27 +299,39 @@ app.get('/api/health', (req, res) => {
 
 // List All Students
 app.get('/api/students', async (req, res) => {
-  const students = await getAllStudents();
-  res.json(students);
+  try {
+    const students = await getAllStudents();
+    res.json(students);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list students', details: err.message });
+  }
 });
 
 // Get Student Full Profile
 app.get('/api/student/:studentId', async (req, res) => {
-  const { studentId } = req.params;
-  const profile = await getStudentProfile(studentId);
-  const finance = await getStudentFinance(studentId);
-  const holds = await getStudentHolds(studentId);
+  try {
+    const { studentId } = req.params;
+    const profile = await getStudentProfile(studentId);
+    const finance = await getStudentFinance(studentId);
+    const holds = await getStudentHolds(studentId);
 
-  if (!profile) {
-    return res.status(404).json({ error: 'Student not found', studentId });
+    if (!profile) {
+      return res.status(404).json({ error: 'Student not found', studentId });
+    }
+    res.json({ profile, finance, holds });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get student profile', details: err.message });
   }
-  res.json({ profile, finance, holds });
 });
 
 // Get Audit Logs
 app.get('/api/audit', async (req, res) => {
-  const logs = await getAuditLogs();
-  res.json(logs);
+  try {
+    const logs = await getAuditLogs();
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get audit logs', details: err.message });
+  }
 });
 
 // Process tuition payment (Demo Payment)
@@ -510,6 +523,11 @@ app.post('/api/reactivate', async (req, res) => {
     return res.status(400).json({ error: 'studentId and requestedBy are required' });
   }
 
+  const sanitizedInput = sanitizeInput(studentId + " " + receiptNumber + " " + requestedBy);
+  if (sanitizedInput.issues.length > 0 && sanitizedInput.issues.some(i => i.severity === 'critical')) {
+    return res.status(400).json({ error: 'Input blocked by Responsible AI Guardrails', issues: sanitizedInput.issues });
+  }
+
   const rateLimitExceeded = isRateLimited(requestedBy);
   const transactionId = uuidv4();
 
@@ -568,8 +586,15 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'message and requestedBy are required' });
   }
 
-  const studentIdMatch = message.match(/S\d{5}/i);
-  const receiptMatch = message.match(/REC-\d{4}-\d{3,4}|REC-\S+/i);
+  const sanitizedMessage = sanitizeInput(message);
+  if (sanitizedMessage.issues.length > 0 && sanitizedMessage.issues.some(i => i.severity === 'critical')) {
+    return res.status(400).json({ error: 'Message blocked by Responsible AI Guardrails', issues: sanitizedMessage.issues });
+  }
+
+  const safeMessage = sanitizedMessage.sanitized;
+
+  const studentIdMatch = safeMessage.match(/S\d{5}/i);
+  const receiptMatch = safeMessage.match(/REC-\d{4}-\d{3,4}|REC-\S+/i);
 
   const studentId = studentIdMatch ? studentIdMatch[0].toUpperCase() : null;
   const receiptNumber = receiptMatch ? receiptMatch[0].toUpperCase() : null;
@@ -604,51 +629,6 @@ app.post('/api/chat', async (req, res) => {
 
       const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
       const { decision, confidence, summary, citations, reasoningTrace, agentDetails, pipelineMetrics, agentConsensus, selfReflection } = result;
-
-      // Execute DB writes based on the decision
-      if (decision === 'APPROVE') {
-        await updateStudentAccountStatus(studentId, true);
-        await createAuditEntry({
-          StudentID: studentId,
-          RequestedBy: requestedBy,
-          ApprovedBy: 'Sutradhara-Auto',
-          Action: 'Reactivate',
-          PolicyCitation: citations[0] || 'RIT-POL-001',
-          ReasoningTrace: reasoningTrace.join(' | '),
-          ExecutionStatus: 'Executed',
-          ReceiptNumber: receiptNumber,
-          TransactionId: transactionId
-        });
-        await sendEmailNotification(
-          profile.userPrincipalName,
-          "RIT Student Access Restored — Sutradhara",
-          buildReactivationEmail(profile.displayName, receiptNumber)
-        );
-      } else if (decision === 'ESCALATE') {
-        await createAuditEntry({
-          StudentID: studentId,
-          RequestedBy: requestedBy,
-          ApprovedBy: 'Pending IT Lead',
-          Action: 'Escalate',
-          PolicyCitation: citations[0] || 'RIT-POL-001',
-          ReasoningTrace: reasoningTrace.join(' | '),
-          ExecutionStatus: 'Pending',
-          ReceiptNumber: receiptNumber,
-          TransactionId: transactionId
-        });
-      } else if (decision === 'DENY') {
-        await createAuditEntry({
-          StudentID: studentId,
-          RequestedBy: requestedBy,
-          ApprovedBy: 'Sutradhara-Auto',
-          Action: 'Deny',
-          PolicyCitation: citations[0] || 'RIT-POL-001',
-          ReasoningTrace: reasoningTrace.join(' | '),
-          ExecutionStatus: 'Executed',
-          ReceiptNumber: receiptNumber,
-          TransactionId: transactionId
-        });
-      }
 
       return res.json({
         type: 'pipeline',

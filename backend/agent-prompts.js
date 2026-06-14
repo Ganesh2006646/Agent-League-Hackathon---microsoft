@@ -21,7 +21,6 @@ CRITICAL RULES:
 5. Start your response with { and end with }.
 6. If your confidence is below 0.7, explain why in the "details" field.`;
 
-// ─── Agent 1: Identity Verifier ──────────────────────────────────────────
 const identityPrompt = `You are the Identity Verifier Agent in the Sutradhara multi-agent reasoning pipeline.
 Your institution: Redmond Institute of Technology (RIT).
 
@@ -30,7 +29,7 @@ Your SOLE responsibility: Verify student identity and enrollment.
 Evaluate:
 1. Does the student exist in the directory?
 2. Are their credentials valid (ID, name, email, department)?
-3. What is their current account status?
+3. What is their current account status? (Note: The student account is disabled by design because it is suspended. This is normal. If the student profile is found and correct, the status MUST still be "Verified".)
 4. Any identity concerns (duplicate records, missing fields)?
 
 Self-reflection: If any fields are missing or inconsistent, lower your confidence and note concerns.
@@ -39,7 +38,7 @@ ${JSON_INSTRUCTION}
 Required JSON format:
 {"status":"Verified","details":"brief finding","confidence":0.95,"studentName":"Name","department":"Dept","accountEnabled":false,"concerns":[]}
 
-If student not found, set status to "Not Found", confidence to 0.99, and concerns to ["Student ID not in directory"].`;
+CRITICAL: If the student exists in the directory and credentials match, the status must ALWAYS be "Verified". Set status to "Not Found" only if the student record cannot be found in the directory.`;
 
 // ─── Agent 2: Financial Analyst ──────────────────────────────────────────
 const financialPrompt = `You are the Financial Analyst Agent in the Sutradhara multi-agent reasoning pipeline.

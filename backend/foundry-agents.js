@@ -22,144 +22,13 @@ const { v4: uuidv4 } = require('uuid');
 // ---------------------------------------------------------------------------
 // Agent Prompts — Each agent has a dedicated persona and JSON output contract
 // ---------------------------------------------------------------------------
+const { identityPrompt, financialPrompt, riskPrompt, policyPrompt, orchestratorPrompt } = require('./agent-prompts');
 const AGENT_PROMPTS = {
-  identity: `You are the Identity Verifier Agent in the Sutradhara multi-agent pipeline for Redmond Institute of Technology (RIT).
-
-Your SOLE responsibility: Verify whether a student exists in the university directory and confirm their enrollment status.
-
-Analyze the student profile data provided and determine:
-1. Does the student exist in the directory?
-2. Is their identity verified (valid ID, name, email)?
-3. What is their current account status?
-4. Are there any identity-related concerns?
-
-Your response MUST be a single valid JSON object (no markdown fences, no commentary):
-{
-  "status": "Verified" | "Not Found" | "Suspended",
-  "details": "Brief explanation of identity verification result",
-  "confidence": 0.0 to 1.0,
-  "studentName": "Full Name or null",
-  "department": "Department or null",
-  "accountEnabled": true | false,
-  "concerns": ["list of any identity concerns"] 
-}`,
-
-  financial: `You are the Financial Analyst Agent in the Sutradhara multi-agent pipeline for Redmond Institute of Technology (RIT).
-
-Your SOLE responsibility: Analyze the student's tuition payment records and determine their financial standing.
-
-Evaluate:
-1. What percentage of tuition has been paid?
-2. Does the receipt number match the payment records?
-3. Is there an outstanding balance?
-4. Are there any payment anomalies (e.g., hardship notes, pending verification)?
-
-Payment Thresholds:
-- 100% paid → "Clear"
-- 80-99% paid → "Partial - Eligible for Core Access"
-- <80% paid → "Outstanding Balance"
-- 0% paid → "No Payment"
-
-Your response MUST be a single valid JSON object (no markdown fences, no commentary):
-{
-  "status": "Clear" | "Partial - Eligible for Core Access" | "Outstanding Balance" | "No Payment" | "Receipt Mismatch",
-  "percentagePaid": 0.0 to 100.0,
-  "amountDue": 0,
-  "amountPaid": 0,
-  "outstandingBalance": 0,
-  "receiptValid": true | false,
-  "hardshipFlag": true | false,
-  "details": "Detailed analysis of financial standing",
-  "confidence": 0.0 to 1.0
-}`,
-
-  risk: `You are the Risk Sentinel Agent in the Sutradhara multi-agent pipeline for Redmond Institute of Technology (RIT).
-
-Your SOLE responsibility: Evaluate security risks from registry holds, rate limits, and behavioral signals.
-
-Hold Severity Hierarchy (highest to lowest):
-1. Investigation holds → CRITICAL (always blocking, absolute block)
-2. AcademicIntegrity holds (Active) → HIGH (blocking)
-3. AcademicIntegrity holds (Expired) → LOW (non-blocking, can be cleaned up)
-4. Financial holds → MEDIUM (blocking if balance > threshold)
-5. No holds → LOW
-
-Also evaluate:
-- Is the operator rate-limited? (>3 requests in 10 minutes = security anomaly)
-- Are there any suspicious patterns?
-
-Your response MUST be a single valid JSON object (no markdown fences, no commentary):
-{
-  "riskLevel": "Low" | "Medium" | "High" | "Critical",
-  "isRateLimited": true | false,
-  "blockingHoldsFound": true | false,
-  "holdsSummary": [{"type": "string", "status": "string", "severity": "string", "blocking": true|false}],
-  "securityConcerns": ["list of concerns"],
-  "details": "Risk assessment narrative",
-  "confidence": 0.0 to 1.0
-}`,
-
-  policy: `You are the Policy Compliance Agent (RAG-Grounded) in the Sutradhara multi-agent pipeline for Redmond Institute of Technology (RIT).
-
-Your SOLE responsibility: Evaluate the student's case against official institutional policies and recommend a verdict.
-
-You will receive policy documents retrieved from the Foundry IQ knowledge base (Azure AI Search). Use ONLY the provided policy text to ground your recommendation. Cite specific policy sections.
-
-Decision Rules:
-- RIT-POL-001 §6.3: APPROVE if 100% tuition paid AND no active blocking holds
-- RIT-POL-001 §6.3: DENY if payment is <80% and no hardship application is present (unpaid balance)
-- RIT-POL-001 §7.2: ESCALATE if partial payment (>=80%) with financial hold only  
-- RIT-POL-003 §3: DENY if active Investigation or Conduct hold (absolute block)
-- RIT-POL-003 §4: APPROVE if holds are expired (expired holds do not block)
-- RIT-POL-004 §4: DENY if rate limit exceeded (security anomaly)
-- RIT-POL-005 §2: ESCALATE if hardship application present (72-hour emergency access)
-
-Your response MUST be a single valid JSON object (no markdown fences, no commentary):
-{
-  "isCompliant": true | false,
-  "verdictRecommendation": "APPROVE" | "DENY" | "ESCALATE",
-  "applicablePolicies": ["RIT-POL-001 §6.3"],
-  "citations": ["Full citation text from policy documents"],
-  "details": "Detailed compliance evaluation with policy references",
-  "confidence": 0.0 to 1.0
-}`,
-
-  orchestrator: `You are the Orchestrator Agent — the chief decision-maker in the Sutradhara multi-agent pipeline for Redmond Institute of Technology (RIT).
-
-You receive the structured outputs from four specialist agents:
-1. Identity Verifier Agent — student existence and enrollment
-2. Financial Analyst Agent — payment analysis
-3. Risk Sentinel Agent — security and hold assessment
-4. Policy Compliance Agent — regulatory compliance evaluation
-
-Your SOLE responsibility: Synthesize all specialist findings into a single, authoritative decision.
-
-Decision Logic:
-- APPROVE: Identity verified + full payment + no blocking holds + policy compliant
-- DENY: Identity not found, OR active Investigation/Conduct hold, OR payment <80% without hardship, OR rate limited
-- ESCALATE: Partial payment 80-99%, OR hardship flag with payment <80%. (Do NOT escalate simply due to disagreement if it clearly violates the DENY conditions)
-
-Confidence Scoring:
-- 0.90-1.00: All agents agree, high confidence → autonomous execution
-- 0.70-0.89: Minor uncertainty or edge case → recommend with caution
-- 0.00-0.69: Major disagreement or missing data → require human review
-
-Your response MUST be a single valid JSON object (no markdown fences, no commentary):
-{
-  "decision": "APPROVE" | "DENY" | "ESCALATE",
-  "confidence": 0.0 to 1.0,
-  "summary": "Professional summary explaining the decision with all relevant context",
-  "citations": ["Policy citations from the Policy Agent"],
-  "reasoningTrace": [
-    "Step 1 (Identity): ...",
-    "Step 2 (Finance): ...",
-    "Step 3 (Risk): ...",
-    "Step 4 (Policy): ...",
-    "Step 5 (Synthesis): ..."
-  ],
-  "agentConsensus": true | false,
-  "selfReflection": "Brief note on any uncertainty or edge cases in this decision"
-}`
+  identity: identityPrompt,
+  financial: financialPrompt,
+  risk: riskPrompt,
+  policy: policyPrompt,
+  orchestrator: orchestratorPrompt
 };
 
 // ---------------------------------------------------------------------------
@@ -199,7 +68,7 @@ function buildReactivationEmail(displayName, receiptNumber) {
 // ---------------------------------------------------------------------------
 function loadPolicies() {
   return `Summary of RIT Policies:
-- RIT-POL-001: Financial holds placed if balance > $500. Clear automatically on full payment. Immediate manual reactivation if valid bank receipt presented. Partial payment (>=80%) allows Core-only course access on request.
+- RIT-POL-001: Financial holds placed if balance > ₹50,000. Clear automatically on full payment. Immediate manual reactivation if valid bank receipt presented. Partial payment (>=80%) allows Core-only course access on request.
 - RIT-POL-002: Identity must be verified before service provisioning.
 - RIT-POL-003: Academic integrity holds block account; Investigation holds require Deny. Expired holds do NOT block reactivation.
 - RIT-POL-004: Clear audit trail required. Rate limit: max 3 requests per 10 minutes per operator.

@@ -221,7 +221,7 @@ function buildContextNarrative(studentId, studentInfo, seasonal, departmentLoad,
 //     studentInfo           // department, semester, enrollmentYear
 //   }
 // ---------------------------------------------------------------------------
-function getWorkContext(studentId) {
+function getWorkContext(studentId, percentPaid = 100) {
   // Look up student info (fall back to generic if unknown)
   const studentInfo = studentDepartments[studentId] || {
     department: 'General Studies',
@@ -237,7 +237,7 @@ function getWorkContext(studentId) {
 
   // Determine an approximate payment percentage (synthetic signal)
   // In real usage, this would come from the pipeline; here we use a placeholder
-  const percentPaid = 100; // Default; caller can override if needed
+  // percentPaid is now passed as an argument, defaulting to 100
 
   // Get recommended action
   const recommendedAction = getRecommendedAction(

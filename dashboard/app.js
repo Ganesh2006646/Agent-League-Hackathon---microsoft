@@ -617,6 +617,72 @@ function runSimulatedPipelineData(studentId, receiptNumber, isRateLimited) {
     };
   }
   
+  if (studentId === "S10006") {
+    return {
+      decision: "APPROVE",
+      confidence: 0.98,
+      summary: "Identity and tuition payment verified. No active holds present. Account reactivation approved under RIT-POL-001 §6.3.",
+      citations: ["RIT-POL-001 §6.3"],
+      reasoningTrace: [
+        `Step 1 (Identity): Verified student Meera Joshi. Account is currently disabled.`,
+        `Step 2 (Finance): Confirmed 100% payment (₹1,30,000 / ₹1,30,000). Receipt matches bank record.`,
+        `Step 3 (Risk): Risk level is Low. No active holds found.`,
+        `Step 4 (Policy): Fully compliant with RIT-POL-001 §6.3. Immediate reactivation is authorized.`,
+        `Step 5 (Synthesis): Approved. All compliance checks passed.`
+      ],
+      agentDetails: {
+        identity: { status: "Verified", details: "Verified Meera Joshi. Account disabled.", confidence: 0.99 },
+        finance: { status: "Clear", percentagePaid: 100.0, amountDue: 130000, amountPaid: 130000, receiptValid: true, details: "100% paid." },
+        risk: { riskLevel: "Low", isRateLimited: false, blockingHoldsFound: false, details: "No holds." },
+        policy: { isCompliant: true, applicablePolicies: ["POL-001 §6.3"], verdictRecommendation: "APPROVE", details: "Meets full payment criteria." }
+      }
+    };
+  }
+  
+  if (studentId === "S10007") {
+    return {
+      decision: "ESCALATE",
+      confidence: 0.94,
+      summary: "Student Arjun Patel has paid 80% of tuition (₹88,000 / ₹1,10,000). Escalating to IT Administration for manual activation under POL-001 §7.2.",
+      citations: ["RIT-POL-001 §7.2"],
+      reasoningTrace: [
+        `Step 1 (Identity): Verified student Arjun Patel. Account is currently disabled.`,
+        `Step 2 (Finance): Payment verified at 80% (₹88,000 paid).`,
+        `Step 3 (Risk): Risk level is Medium. Active Financial Hold.`,
+        `Step 4 (Policy): Matches RIT-POL-001 §7.2 criteria. Restructured access permitted pending IT callback.`,
+        `Step 5 (Synthesis): Escalated. Student meets the 80% payment threshold.`
+      ],
+      agentDetails: {
+        identity: { status: "Verified", details: "Verified Arjun Patel. Account disabled.", confidence: 0.99 },
+        finance: { status: "Outstanding Balance", percentagePaid: 80.0, amountDue: 110000, amountPaid: 88000, receiptValid: true, details: "80% paid." },
+        risk: { riskLevel: "Medium", isRateLimited: false, blockingHoldsFound: true, details: "Active Financial Hold." },
+        policy: { isCompliant: true, applicablePolicies: ["POL-001 §7.2"], verdictRecommendation: "ESCALATE", details: "Meets partial access criteria (>= 80%)." }
+      }
+    };
+  }
+
+  if (studentId === "S10008") {
+    return {
+      decision: "DENY",
+      confidence: 0.99,
+      summary: "Tuition payment not received (0%). Student Diya Krishnan has an active financial hold. Reactivation is strictly denied under POL-001 §6.3.",
+      citations: ["RIT-POL-001 §6.3"],
+      reasoningTrace: [
+        `Step 1 (Identity): Verified student Diya Krishnan. Account is currently disabled.`,
+        `Step 2 (Finance): Payment verified at 0% (₹0 paid).`,
+        `Step 3 (Risk): Risk level is High. Active Financial hold.`,
+        `Step 4 (Policy): Non-compliant. Active financial holds require payment for resolution.`,
+        `Step 5 (Synthesis): Denied. Reactivation blocked by active financial hold.`
+      ],
+      agentDetails: {
+        identity: { status: "Verified", details: "Verified Diya Krishnan. Account disabled.", confidence: 0.99 },
+        finance: { status: "Outstanding Balance", percentagePaid: 0.0, amountDue: 135000, amountPaid: 0, receiptValid: false, details: "0% paid." },
+        risk: { riskLevel: "High", isRateLimited: false, blockingHoldsFound: true, details: "Active Financial hold." },
+        policy: { isCompliant: false, applicablePolicies: ["POL-001 §6.3"], verdictRecommendation: "DENY", details: "Active financial hold blocks reactivation." }
+      }
+    };
+  }
+
   return {
     decision: "ESCALATE",
     confidence: 0.85,
@@ -925,7 +991,7 @@ async function submitUserChat() {
             
             // Record telemetry for LIVE MODE so dashboard numbers update
             if (response.pipelineMetrics) {
-              recordSimTelemetry(response.pipelineMetrics, agentDecision);
+              updateTelemetryFromPipeline(response.pipelineMetrics, agentDecision);
             }
 
             const cardRecommendation = agentDecision === 'APPROVE' ? 'approve' : agentDecision === 'DENY' ? 'deny' : (studentId === 'S10005' ? 'temporary' : 'approve-partial');
