@@ -311,6 +311,12 @@ function parseAgentResponse(text, fallback, requiredKeys = []) {
     }
   }
 
+  if (!parsed) {
+    console.warn("\n=== FAILED TO PARSE JSON. RAW TEXT WAS ===");
+    console.warn(text);
+    console.warn("==========================================\n");
+  }
+
   if (parsed && typeof parsed === 'object') {
     let hasAllKeys = true;
     for (const key of requiredKeys) {
@@ -324,7 +330,9 @@ function parseAgentResponse(text, fallback, requiredKeys = []) {
     }
   }
 
-  console.warn("⚠️ Agent returned unparseable response. Using structured fallback.");
+  console.warn(`⚠️ Agent returned unparseable response or missing keys. Required: ${requiredKeys.join(', ')}. RAW TEXT WAS:`);
+  console.warn(text);
+  console.warn("Using structured fallback.");
   return fallback;
 }
 
@@ -346,7 +354,7 @@ async function callAgent(agentName, systemPrompt, userContent, client) {
           { role: "user", content: userContent }
         ],
         temperature: 0.1,
-        max_tokens: 800
+        max_tokens: 2500
       }
     });
 
