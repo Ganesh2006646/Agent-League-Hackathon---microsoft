@@ -8,7 +8,7 @@ async function main() {
     return;
   }
 
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, { family: 4 });
   try {
     console.log("🔌 Connecting to MongoDB Atlas...");
     await client.connect();
