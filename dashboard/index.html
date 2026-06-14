@@ -103,11 +103,14 @@
         
         <!-- tab-buttons -->
         <div class="systems-tabs">
-          <button class="tab-btn active" data-tab="db">🗄️ Student Records</button>
-          <button class="tab-btn" data-tab="graph">⚡ Graph API Logs</button>
-          <button class="tab-btn" data-tab="sharepoint">📊 SharePoint Audit</button>
-          <button class="tab-btn" data-tab="reasoning">🔍 Agent Reasoning</button>
-          <button class="tab-btn" data-tab="payment">💳 Make Payment</button>
+          <button class="tab-btn active" data-tab="db">🗄️ Records</button>
+          <button class="tab-btn" data-tab="reasoning">🔍 Reasoning</button>
+          <button class="tab-btn" data-tab="telemetry">📈 Telemetry</button>
+          <button class="tab-btn" data-tab="eval">✅ Evaluation</button>
+          <button class="tab-btn" data-tab="safety">🛡️ Safety</button>
+          <button class="tab-btn" data-tab="graph">⚡ Graph API</button>
+          <button class="tab-btn" data-tab="sharepoint">📊 Audit</button>
+          <button class="tab-btn" data-tab="payment">💳 Payment</button>
         </div>
 
         <!-- TAB CONTENT 1: DB & Ledgers -->
@@ -208,6 +211,152 @@
               <button type="submit" class="fluent-btn-primary" style="padding: 12px; font-weight: 600; margin-top: 10px;">Submit Tuition Payment</button>
             </form>
             <div id="payment-status-message" style="margin-top: 16px; padding: 12px; border-radius: 6px; display: none; text-align: center; font-weight: 500;"></div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 6: Telemetry Dashboard -->
+        <div class="tab-content" id="tab-telemetry">
+          <p class="section-desc">Multi-agent pipeline telemetry: agent timing, decision distribution, and performance metrics.</p>
+          <div class="telemetry-dashboard">
+            <div class="telemetry-stats-grid" id="telemetry-stats">
+              <div class="stat-card">
+                <div class="stat-value" id="stat-total-requests">0</div>
+                <div class="stat-label">Total Requests</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="stat-avg-duration">0ms</div>
+                <div class="stat-label">Avg Pipeline Duration</div>
+              </div>
+              <div class="stat-card stat-approve">
+                <div class="stat-value" id="stat-approve-count">0</div>
+                <div class="stat-label">Approved</div>
+              </div>
+              <div class="stat-card stat-deny">
+                <div class="stat-value" id="stat-deny-count">0</div>
+                <div class="stat-label">Denied</div>
+              </div>
+              <div class="stat-card stat-escalate">
+                <div class="stat-value" id="stat-escalate-count">0</div>
+                <div class="stat-label">Escalated</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="stat-agents">6</div>
+                <div class="stat-label">Active Agents</div>
+              </div>
+            </div>
+            <div class="agent-timing-section">
+              <h3>Agent Timing Breakdown</h3>
+              <div class="agent-timing-bars" id="agent-timing-bars">
+                <div class="timing-bar-row">
+                  <span class="timing-label">🪪 Identity</span>
+                  <div class="timing-bar-track"><div class="timing-bar-fill" id="timing-identity" style="width:0%"></div></div>
+                  <span class="timing-value" id="timing-identity-val">—</span>
+                </div>
+                <div class="timing-bar-row">
+                  <span class="timing-label">💰 Financial</span>
+                  <div class="timing-bar-track"><div class="timing-bar-fill" id="timing-financial" style="width:0%"></div></div>
+                  <span class="timing-value" id="timing-financial-val">—</span>
+                </div>
+                <div class="timing-bar-row">
+                  <span class="timing-label">🛡️ Risk</span>
+                  <div class="timing-bar-track"><div class="timing-bar-fill" id="timing-risk" style="width:0%"></div></div>
+                  <span class="timing-value" id="timing-risk-val">—</span>
+                </div>
+                <div class="timing-bar-row">
+                  <span class="timing-label">📜 Policy</span>
+                  <div class="timing-bar-track"><div class="timing-bar-fill" id="timing-policy" style="width:0%"></div></div>
+                  <span class="timing-value" id="timing-policy-val">—</span>
+                </div>
+                <div class="timing-bar-row">
+                  <span class="timing-label">🧠 Orchestrator</span>
+                  <div class="timing-bar-track"><div class="timing-bar-fill" id="timing-orchestrator" style="width:0%"></div></div>
+                  <span class="timing-value" id="timing-orchestrator-val">—</span>
+                </div>
+              </div>
+            </div>
+            <div style="text-align:center; margin-top:12px;">
+              <button class="fluent-btn-primary" onclick="refreshTelemetry()" style="padding: 8px 20px;">🔄 Refresh Telemetry</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 7: Evaluation Results -->
+        <div class="tab-content" id="tab-eval">
+          <p class="section-desc">Automated evaluation of all 8 demo scenarios against expected decisions and policy citations.</p>
+          <div class="eval-dashboard">
+            <div class="eval-summary" id="eval-summary">
+              <div class="eval-accuracy-circle" id="eval-accuracy-circle">
+                <span class="accuracy-value">—</span>
+                <span class="accuracy-label">Accuracy</span>
+              </div>
+              <div class="eval-meta">
+                <div><strong>Tests:</strong> <span id="eval-total">8</span></div>
+                <div><strong>Passed:</strong> <span id="eval-passed" class="text-success">—</span></div>
+                <div><strong>Failed:</strong> <span id="eval-failed" class="text-danger">—</span></div>
+              </div>
+            </div>
+            <table class="audit-table eval-table" id="eval-results-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Expected</th>
+                  <th>Actual</th>
+                  <th>Policy</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody id="eval-results-rows">
+                <tr class="empty-row"><td colspan="5">Click "Run Evaluation" to test all scenarios.</td></tr>
+              </tbody>
+            </table>
+            <div style="text-align:center; margin-top:12px;">
+              <button class="fluent-btn-primary" onclick="runEvaluation()" style="padding: 8px 20px;">▶️ Run Evaluation</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 8: Safety & Responsible AI -->
+        <div class="tab-content" id="tab-safety">
+          <p class="section-desc">Responsible AI guardrails: input sanitization, bias detection, and safety compliance report.</p>
+          <div class="safety-dashboard" id="safety-dashboard">
+            <div class="safety-grid">
+              <div class="safety-card safety-active">
+                <div class="safety-icon">🔒</div>
+                <div class="safety-title">PII Protection</div>
+                <div class="safety-status">Active</div>
+              </div>
+              <div class="safety-card safety-active">
+                <div class="safety-icon">🛡️</div>
+                <div class="safety-title">Prompt Injection Defense</div>
+                <div class="safety-status">Active</div>
+              </div>
+              <div class="safety-card safety-active">
+                <div class="safety-icon">⚖️</div>
+                <div class="safety-title">Bias Detection</div>
+                <div class="safety-status">Active</div>
+              </div>
+              <div class="safety-card safety-active">
+                <div class="safety-icon">📋</div>
+                <div class="safety-title">Output Validation</div>
+                <div class="safety-status">Active</div>
+              </div>
+              <div class="safety-card safety-active">
+                <div class="safety-icon">🔍</div>
+                <div class="safety-title">Input Sanitization</div>
+                <div class="safety-status">Active</div>
+              </div>
+              <div class="safety-card safety-active">
+                <div class="safety-icon">📊</div>
+                <div class="safety-title">Decision Auditing</div>
+                <div class="safety-status">Active</div>
+              </div>
+            </div>
+            <div class="safety-report" id="safety-report-content">
+              <div class="placeholder-text">Responsible AI guardrails are active. Run scenarios to generate a detailed safety report.</div>
+            </div>
+            <div style="text-align:center; margin-top:12px;">
+              <button class="fluent-btn-primary" onclick="refreshSafetyReport()" style="padding: 8px 20px;">📊 Generate Safety Report</button>
+            </div>
           </div>
         </div>
 

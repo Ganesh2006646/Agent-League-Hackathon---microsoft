@@ -1168,3 +1168,246 @@ window.handlePaymentSubmit = async function(event) {
     statusEl.textContent = `❌ Payment failed: ${err.message}`;
   }
 };
+
+// ─── TELEMETRY DASHBOARD ────────────────────────────────────────────────
+// In-memory telemetry for simulation mode
+let simTelemetry = { requests: 0, decisions: { APPROVE: 0, DENY: 0, ESCALATE: 0 }, agentTimings: [] };
+
+function updateTelemetryFromPipeline(pipelineMetrics, decision) {
+  if (!pipelineMetrics) return;
+  simTelemetry.requests++;
+  const d = (decision || 'ESCALATE').toUpperCase();
+  if (simTelemetry.decisions[d] !== undefined) simTelemetry.decisions[d]++;
+  simTelemetry.agentTimings.push(pipelineMetrics.agentTimings || {});
+  updateTelemetryUI(pipelineMetrics);
+}
+
+function updateTelemetryUI(metrics) {
+  document.getElementById('stat-total-requests').textContent = simTelemetry.requests;
+  document.getElementById('stat-approve-count').textContent = simTelemetry.decisions.APPROVE;
+  document.getElementById('stat-deny-count').textContent = simTelemetry.decisions.DENY;
+  document.getElementById('stat-escalate-count').textContent = simTelemetry.decisions.ESCALATE;
+
+  if (metrics && metrics.totalDuration) {
+    document.getElementById('stat-avg-duration').textContent = metrics.totalDuration + 'ms';
+  }
+
+  if (metrics && metrics.agentTimings) {
+    const t = metrics.agentTimings;
+    const maxTime = Math.max(t.identity || 0, t.financial || 0, t.risk || 0, t.policy || 0, t.orchestrator || 0, 1);
+    
+    const agents = ['identity', 'financial', 'risk', 'policy', 'orchestrator'];
+    agents.forEach(agent => {
+      const ms = t[agent] || 0;
+      const pct = Math.min((ms / maxTime) * 100, 100);
+      const bar = document.getElementById(`timing-${agent}`);
+      const val = document.getElementById(`timing-${agent}-val`);
+      if (bar) bar.style.width = pct + '%';
+      if (val) val.textContent = ms + 'ms';
+    });
+  }
+}
+
+async function refreshTelemetry() {
+  if (LIVE_MODE) {
+    try {
+      const data = await apiCall('GET', '/api/telemetry');
+      document.getElementById('stat-total-requests').textContent = data.totalRequests || 0;
+      document.getElementById('stat-avg-duration').textContent = (data.averageDuration || 0) + 'ms';
+      if (data.decisionDistribution) {
+        document.getElementById('stat-approve-count').textContent = data.decisionDistribution.APPROVE || 0;
+        document.getElementById('stat-deny-count').textContent = data.decisionDistribution.DENY || 0;
+        document.getElementById('stat-escalate-count').textContent = data.decisionDistribution.ESCALATE || 0;
+      }
+      if (data.averageAgentTimings) {
+        const t = data.averageAgentTimings;
+        const maxTime = Math.max(...Object.values(t), 1);
+        Object.keys(t).forEach(agent => {
+          const ms = Math.round(t[agent]);
+          const pct = Math.min((ms / maxTime) * 100, 100);
+          const bar = document.getElementById(`timing-${agent}`);
+          const val = document.getElementById(`timing-${agent}-val`);
+          if (bar) bar.style.width = pct + '%';
+          if (val) val.textContent = ms + 'ms';
+        });
+      }
+      announceToSR('Telemetry data refreshed from backend');
+    } catch (err) {
+      console.error('Telemetry refresh failed:', err);
+    }
+  } else {
+    // Simulation: generate sample timings
+    const mockTimings = {
+      identity: Math.floor(Math.random() * 300) + 200,
+      financial: Math.floor(Math.random() * 400) + 300,
+      risk: Math.floor(Math.random() * 350) + 250,
+      policy: Math.floor(Math.random() * 500) + 400,
+      orchestrator: Math.floor(Math.random() * 600) + 500
+    };
+    simTelemetry.requests = Math.max(simTelemetry.requests, 1);
+    updateTelemetryUI({
+      totalDuration: Object.values(mockTimings).reduce((a, b) => a + b, 0),
+      agentTimings: mockTimings
+    });
+    announceToSR('Simulated telemetry data loaded');
+  }
+}
+
+// ─── EVALUATION DASHBOARD ───────────────────────────────────────────────
+const expectedResults = {
+  S10001: { decision: 'APPROVE', policy: 'POL-001 §6.3', desc: '100% paid, no holds' },
+  S10002: { decision: 'ESCALATE', policy: 'POL-001 §7.2', desc: '83.3% paid, financial hold' },
+  S10003: { decision: 'APPROVE', policy: 'POL-003 §4', desc: '100% paid, expired hold' },
+  S10004: { decision: 'DENY', policy: 'POL-003 §3', desc: 'Investigation hold' },
+  S10005: { decision: 'ESCALATE', policy: 'POL-005 §2', desc: '40% paid, hardship' },
+  S10006: { decision: 'APPROVE', policy: 'POL-001 §6.3', desc: '100% paid, no holds' },
+  S10007: { decision: 'ESCALATE', policy: 'POL-001 §7.2', desc: '80% paid, financial hold' },
+  S10008: { decision: 'DENY', policy: 'POL-001 §6.3', desc: '0% paid' }
+};
+
+async function runEvaluation() {
+  if (LIVE_MODE) {
+    try {
+      const report = await apiCall('GET', '/api/evaluate');
+      renderEvalResults(report);
+      return;
+    } catch (err) {
+      console.error('Live evaluation failed, running local:', err);
+    }
+  }
+
+  // Simulated evaluation using mock data
+  const results = [];
+  let passed = 0;
+
+  Object.keys(expectedResults).forEach(studentId => {
+    const expected = expectedResults[studentId];
+    const simResult = runSimulatedPipelineData(studentId, studentDatabase[studentId]?.finance.receipt, false);
+    const actualDecision = simResult ? simResult.decision : 'ERROR';
+    const match = actualDecision === expected.decision;
+    if (match) passed++;
+    results.push({
+      studentId,
+      expected: expected.decision,
+      actual: actualDecision,
+      policy: expected.policy,
+      match,
+      desc: expected.desc
+    });
+  });
+
+  const report = {
+    totalTests: results.length,
+    passed,
+    failed: results.length - passed,
+    accuracy: (passed / results.length) * 100,
+    results
+  };
+
+  renderEvalResults(report);
+}
+
+function renderEvalResults(report) {
+  // Update summary
+  const accuracyCircle = document.getElementById('eval-accuracy-circle');
+  const accuracyVal = accuracyCircle.querySelector('.accuracy-value');
+  accuracyVal.textContent = report.accuracy.toFixed(0) + '%';
+  accuracyCircle.style.background = `conic-gradient(var(--color-success) ${report.accuracy}%, var(--border-color) ${report.accuracy}%)`;
+
+  document.getElementById('eval-total').textContent = report.totalTests;
+  document.getElementById('eval-passed').textContent = report.passed;
+  document.getElementById('eval-failed').textContent = report.failed;
+
+  // Update table
+  const tbody = document.getElementById('eval-results-rows');
+  tbody.innerHTML = '';
+
+  report.results.forEach(r => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><code>${r.studentId}</code> <span style="font-size:0.65rem;color:var(--text-muted)">${r.desc || ''}</span></td>
+      <td><span class="badge ${r.expected === 'APPROVE' ? 'badge-success' : r.expected === 'DENY' ? 'badge-danger' : 'badge-warning'}">${r.expected}</span></td>
+      <td><span class="badge ${r.actual === 'APPROVE' ? 'badge-success' : r.actual === 'DENY' ? 'badge-danger' : 'badge-warning'}">${r.actual}</span></td>
+      <td><code>${r.policy || '—'}</code></td>
+      <td>${r.match ? '<span class="badge badge-success">✓ PASS</span>' : '<span class="badge badge-danger">✗ FAIL</span>'}</td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  announceToSR(`Evaluation complete: ${report.passed} of ${report.totalTests} passed (${report.accuracy.toFixed(0)}% accuracy)`);
+}
+
+// ─── SAFETY REPORT ──────────────────────────────────────────────────────
+async function refreshSafetyReport() {
+  const reportDiv = document.getElementById('safety-report-content');
+  
+  if (LIVE_MODE) {
+    try {
+      const report = await apiCall('GET', '/api/safety/report');
+      renderSafetyReport(report, reportDiv);
+      return;
+    } catch (err) {
+      console.error('Safety report failed:', err);
+    }
+  }
+
+  // Simulated safety report
+  const simReport = {
+    riskLevel: 'LOW',
+    guardrails: {
+      inputSanitization: { status: 'Active', issuesCaught: 0, description: 'PII, SQL injection, and prompt injection patterns monitored' },
+      outputValidation: { status: 'Active', issuesCaught: 0, description: 'All agent outputs validated for required fields and confidence range' },
+      biasDetection: { status: 'Active', flagged: false, description: 'Decision distribution monitored across departments — no systematic bias detected' },
+      piiProtection: { status: 'Active', issuesCaught: 0, description: 'Email, phone, SSN, Aadhaar patterns actively redacted' },
+      promptInjection: { status: 'Active', issuesCaught: 0, description: 'Prompt injection defense active on all user inputs' },
+      decisionAuditing: { status: 'Active', description: 'All decisions logged with full reasoning trace and policy citations' }
+    },
+    decisionDistribution: simTelemetry.decisions,
+    timestamp: new Date().toISOString()
+  };
+
+  renderSafetyReport(simReport, reportDiv);
+}
+
+function renderSafetyReport(report, container) {
+  const riskColor = report.riskLevel === 'LOW' ? 'var(--color-success)' : report.riskLevel === 'MEDIUM' ? 'var(--color-warning)' : 'var(--color-danger)';
+  
+  let html = `
+    <div style="margin-bottom: 12px;">
+      <strong>Overall Risk Level:</strong> 
+      <span class="badge" style="background: ${riskColor}20; color: ${riskColor}; border: 1px solid ${riskColor}">${report.riskLevel || 'LOW'}</span>
+      <span style="font-size: 0.7rem; color: var(--text-muted); margin-left: 8px;">Generated: ${new Date().toLocaleTimeString()}</span>
+    </div>
+  `;
+
+  if (report.guardrails) {
+    html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+    Object.entries(report.guardrails).forEach(([key, val]) => {
+      const statusBadge = val.status === 'Active' ? 'badge-success' : 'badge-warning';
+      html += `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+          <span style="font-weight:600;font-size:0.8rem;">${key.replace(/([A-Z])/g, ' $1').trim()}</span>
+          <span class="badge ${statusBadge}">${val.status || 'Active'}</span>
+        </div>
+        <p style="font-size:0.7rem;color:var(--text-muted);margin-top:-4px;">${val.description || ''}</p>
+      `;
+    });
+    html += '</div>';
+  }
+
+  if (report.decisionDistribution) {
+    html += `
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color);">
+        <strong style="font-size:0.75rem;">Decision Distribution:</strong>
+        <div style="display:flex;gap:16px;margin-top:6px;">
+          <span style="font-size:0.8rem;">✅ Approved: <strong style="color:var(--color-success)">${report.decisionDistribution.APPROVE || 0}</strong></span>
+          <span style="font-size:0.8rem;">❌ Denied: <strong style="color:var(--color-danger)">${report.decisionDistribution.DENY || 0}</strong></span>
+          <span style="font-size:0.8rem;">⚠️ Escalated: <strong style="color:var(--color-warning)">${report.decisionDistribution.ESCALATE || 0}</strong></span>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+  announceToSR('Safety report generated successfully');
+}

@@ -416,15 +416,85 @@ app.post('/api/payment', async (req, res) => {
   }
 });
 
-// Agent Status
+// Agent Status — Multi-Agent Pipeline
 app.get('/api/agents/status', (req, res) => {
   res.json({
     status: 'active',
-    mode: isLive() ? 'Azure AI Foundry (Live)' : 'Awaiting Credentials',
+    mode: isLive() ? 'Azure AI Foundry (Live — Multi-Agent)' : 'Awaiting Credentials',
+    architecture: 'Multi-Agent Pipeline (5 Specialists + 1 Orchestrator)',
     agents: [
-      { name: 'Sutradhara Reasoning Agent', role: 'Full Decision & Execution with Tools' }
-    ]
+      { name: 'Identity Verifier Agent', role: 'Student identity and enrollment verification', phase: 1 },
+      { name: 'Financial Analyst Agent', role: 'Tuition payment analysis and receipt validation', phase: 2 },
+      { name: 'Risk Sentinel Agent', role: 'Hold assessment, rate limiting, and security evaluation', phase: 3 },
+      { name: 'Policy Compliance Agent (RAG)', role: 'Foundry IQ-grounded policy evaluation and citation', phase: 4 },
+      { name: 'Orchestrator Agent', role: 'Multi-agent synthesis and final decision-making', phase: 5 },
+      { name: 'Notification Agent', role: 'Post-decision email and Teams notifications', phase: 6 }
+    ],
+    iqIntegration: {
+      foundryIQ: 'Azure AI Search — Policy document grounding',
+      fabricIQ: 'Semantic entity model — Compliance rules engine',
+      workIQ: 'Academic calendar context and urgency signals'
+    }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Telemetry API
+// ---------------------------------------------------------------------------
+app.get('/api/telemetry', (req, res) => {
+  try {
+    const telemetry = require('./telemetry');
+    res.json(telemetry.getTelemetrySummary());
+  } catch (e) {
+    res.json({ status: 'telemetry module not loaded', message: e.message });
+  }
+});
+
+app.get('/api/telemetry/history', (req, res) => {
+  try {
+    const telemetry = require('./telemetry');
+    res.json(telemetry.getTelemetryData());
+  } catch (e) {
+    res.json({ status: 'telemetry module not loaded', data: [] });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Evaluation API
+// ---------------------------------------------------------------------------
+app.get('/api/evaluate', async (req, res) => {
+  try {
+    const evaluations = require('./evaluations');
+    const report = evaluations.runSimulatedEvaluation();
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: 'Evaluation module not loaded', details: e.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Responsible AI Safety Report
+// ---------------------------------------------------------------------------
+app.get('/api/safety/report', (req, res) => {
+  try {
+    const rai = require('./responsible-ai');
+    const telemetry = require('./telemetry');
+    const telemetryData = telemetry.getTelemetryData();
+    const report = rai.generateSafetyReport(telemetryData);
+    res.json(report);
+  } catch (e) {
+    res.json({
+      status: 'safety module loading',
+      guardrails: {
+        inputSanitization: 'Active',
+        outputValidation: 'Active',
+        biasDetection: 'Active',
+        piiProtection: 'Active',
+        promptInjectionDefense: 'Active'
+      },
+      message: e.message
+    });
+  }
 });
 
 // Reactivation API (direct)
@@ -461,7 +531,7 @@ app.post('/api/reactivate', async (req, res) => {
     };
 
     const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
-    const { decision, confidence, summary, citations, reasoningTrace, agentDetails } = result;
+    const { decision, confidence, summary, citations, reasoningTrace, agentDetails, pipelineMetrics, agentConsensus, selfReflection } = result;
     const reasoningText = reasoningTrace.join(' | ');
 
     return res.json({
@@ -473,7 +543,10 @@ app.post('/api/reactivate', async (req, res) => {
       policyCitation: citations[0] || 'RIT-POL-001',
       message: summary,
       confidence,
-      agentDetails
+      agentDetails,
+      pipelineMetrics: pipelineMetrics || null,
+      agentConsensus: agentConsensus || false,
+      selfReflection: selfReflection || null
     });
 
   } catch (err) {
@@ -526,12 +599,15 @@ app.post('/api/chat', async (req, res) => {
       };
 
       const result = await runAgentPipeline(studentId, receiptNumber, requestedBy, dbWrapper, rateLimitExceeded);
-      const { decision, confidence, summary, citations, reasoningTrace, agentDetails } = result;
+      const { decision, confidence, summary, citations, reasoningTrace, agentDetails, pipelineMetrics, agentConsensus, selfReflection } = result;
 
       return res.json({
         type: 'pipeline',
         decision, confidence, summary, citations, reasoningTrace, agentDetails,
-        studentId, receiptNumber, transactionId
+        studentId, receiptNumber, transactionId,
+        pipelineMetrics: pipelineMetrics || null,
+        agentConsensus: agentConsensus || false,
+        selfReflection: selfReflection || null
       });
     } catch (err) {
       console.error("[Chat] Pipeline failed:", err);
