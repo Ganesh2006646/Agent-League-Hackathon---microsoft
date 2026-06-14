@@ -923,6 +923,11 @@ async function submitUserChat() {
             
             updateReasoningUI(agentDecision, response.confidence, response.summary, response.citations, response.reasoningTrace, response.agentDetails);
             
+            // Record telemetry for LIVE MODE so dashboard numbers update
+            if (response.pipelineMetrics) {
+              recordSimTelemetry(response.pipelineMetrics, agentDecision);
+            }
+
             const cardRecommendation = agentDecision === 'APPROVE' ? 'approve' : agentDecision === 'DENY' ? 'deny' : (studentId === 'S10005' ? 'temporary' : 'approve-partial');
             renderAdaptiveCard(studentId, liveStudent, cardRecommendation, response.citations[0] || 'RIT-POL-001', response.summary);
           });
