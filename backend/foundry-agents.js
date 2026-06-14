@@ -107,6 +107,7 @@ You will receive policy documents retrieved from the Foundry IQ knowledge base (
 
 Decision Rules:
 - RIT-POL-001 §6.3: APPROVE if 100% tuition paid AND no active blocking holds
+- RIT-POL-001 §6.3: DENY if payment is <80% and no hardship application is present (unpaid balance)
 - RIT-POL-001 §7.2: ESCALATE if partial payment (>=80%) with financial hold only  
 - RIT-POL-003 §3: DENY if active Investigation or Conduct hold (absolute block)
 - RIT-POL-003 §4: APPROVE if holds are expired (expired holds do not block)
@@ -136,7 +137,7 @@ Your SOLE responsibility: Synthesize all specialist findings into a single, auth
 Decision Logic:
 - APPROVE: Identity verified + full payment + no blocking holds + policy compliant
 - DENY: Identity not found, OR active Investigation/Conduct hold, OR payment <80% without hardship, OR rate limited
-- ESCALATE: Partial payment 80-99%, OR hardship flag with payment <80%, OR specialist agents disagree
+- ESCALATE: Partial payment 80-99%, OR hardship flag with payment <80%. (Do NOT escalate simply due to disagreement if it clearly violates the DENY conditions)
 
 Confidence Scoring:
 - 0.90-1.00: All agents agree, high confidence → autonomous execution
