@@ -4,8 +4,8 @@ info:
   description: Enterprise API for student account lifecycle management. Handles student data retrieval, policy-driven reactivation reasoning, and IT approval callbacks.
   version: v1.0
 servers:
-  - url: https://sutradhara-backend.azurewebsites.net
-    description: Azure App Service (Production)
+  - url: https://stupid-bobcats-count.loca.lt
+    description: Localtunnel Development Link
   - url: http://localhost:3000
     description: Local Development
 paths:
